@@ -2,8 +2,11 @@ name: Update AUR Package
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Run every 5 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   check-and-update:
@@ -66,31 +69,22 @@ jobs:
         if: steps.check.outputs.update_needed == 'true'
         run: |
           echo "::group::Updating PKGBUILD"
-          echo "Update needed is true, proceeding with update"
           # Get local pkgrel
           LOCAL_PKGREL=$(grep -oP 'pkgrel=\K\d+' PKGBUILD)
           echo "Current pkgrel: $LOCAL_PKGREL"
           
           echo "Updating pkgver to ${{ steps.check.outputs.latest_version }}"
           sed -i "s/pkgver=.*/pkgver=${{ steps.check.outputs.latest_version }}/" PKGBUILD
-          echo "Updating pkgrel to $LOCAL_PKGREL"
-          sed -i "s/pkgrel=.*/pkgrel=$LOCAL_PKGREL/" PKGBUILD
+          echo "Updating pkgrel to 1"
+          sed -i "s/pkgrel=.*/pkgrel=1/" PKGBUILD
           
           echo "Calculating SHA256 sum..."
           NEW_SHA256=$(sha256sum cursor-${{ steps.check.outputs.latest_version }}.AppImage | awk '{print $1}')
           echo "New SHA256: $NEW_SHA256"
           
-          # Update PKGBUILD to use GitHub Actions artifact URL
-          sed -i "s|source=.*|source=(\"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/cursor-appimage\")|" PKGBUILD
-          
-          echo "Updating SHA256 sum in PKGBUILD..."
-          OLD_SHA256=$(grep -oP "sha256sums_x86_64=\('\K[^']+" PKGBUILD)
-          echo "Old SHA256: $OLD_SHA256"
+          echo "Updating source URL and SHA256 sum in PKGBUILD..."
+          sed -i "s|source=.*|source=(\"https://github.com/${{ github.repository }}/releases/download/v${{ steps.check.outputs.latest_version }}/cursor-${{ steps.check.outputs.latest_version }}.AppImage\")|" PKGBUILD
           sed -i "s/sha256sums_x86_64=('.*'/sha256sums_x86_64=('$NEW_SHA256'/" PKGBUILD
-          echo "SHA256 updated from $OLD_SHA256 to $NEW_SHA256"
-          
-          echo "Cleaning up downloaded file..."
-          rm cursor-${{ steps.check.outputs.latest_version }}.AppImage
           
           echo "Final PKGBUILD contents:"
           cat PKGBUILD
