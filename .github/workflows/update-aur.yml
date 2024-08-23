@@ -30,14 +30,16 @@ jobs:
       - name: Check for updates
         id: check
         run: |
-          echo "::group::Checking for updates"
-          while IFS= read -r line; do
-            echo "$line"
-            if [[ $line == *"="* ]]; then
-              echo "$line" >> $GITHUB_OUTPUT
-            fi
-          done < <(python check.py)
-          echo "::endgroup::"
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/getcursor/cursor/releases/latest | jq -r .tag_name | sed 's/^v//')
+          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          
+          CURRENT_VERSION=$(grep -oP 'pkgver=\K.*' PKGBUILD)
+          
+          if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+            echo "update_needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "update_needed=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Debug Output
         run: |
@@ -82,8 +84,8 @@ jobs:
           NEW_SHA256=$(sha256sum cursor-${{ steps.check.outputs.latest_version }}.AppImage | awk '{print $1}')
           echo "New SHA256: $NEW_SHA256"
           
-          echo "Updating source URL and SHA256 sum in PKGBUILD..."
-          sed -i "s|source=.*|source=(\"https://github.com/${{ github.repository }}/releases/download/v${{ steps.check.outputs.latest_version }}/cursor-${{ steps.check.outputs.latest_version }}.AppImage\")|" PKGBUILD
+          echo "Updating source URL in PKGBUILD..."
+          sed -i '/^source_x86_64=/,/)/c\source_x86_64=("https://github.com/${{ github.repository }}/releases/download/v${{ steps.check.outputs.latest_version }}/cursor-${{ steps.check.outputs.latest_version }}.AppImage" "cursor.png")' PKGBUILD
           sed -i "s/sha256sums_x86_64=('.*'/sha256sums_x86_64=('$NEW_SHA256'/" PKGBUILD
           
           echo "Final PKGBUILD contents:"
