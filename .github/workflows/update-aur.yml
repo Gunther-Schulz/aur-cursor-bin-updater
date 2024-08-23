@@ -41,6 +41,27 @@ jobs:
           echo "Update needed: ${{ steps.check.outputs.update_needed }}"
           echo "Latest version: ${{ steps.check.outputs.latest_version }}"
 
+      - name: Download and store new version
+        if: steps.check.outputs.update_needed == 'true'
+        run: |
+          echo "::group::Downloading and storing new version"
+          wget -O cursor-${{ steps.check.outputs.latest_version }}.AppImage https://downloader.cursor.sh/linux/appImage/x64
+          echo "::endgroup::"
+
+      - name: Delete old artifact
+        if: steps.check.outputs.update_needed == 'true'
+        uses: geekyeggo/delete-artifact@v2
+        with:
+          name: cursor-appimage
+
+      - name: Upload new version as artifact
+        if: steps.check.outputs.update_needed == 'true'
+        uses: actions/upload-artifact@v2
+        with:
+          name: cursor-appimage
+          path: cursor-${{ steps.check.outputs.latest_version }}.AppImage
+          retention-days: 1
+
       - name: Update PKGBUILD
         if: steps.check.outputs.update_needed == 'true'
         run: |
@@ -55,12 +76,12 @@ jobs:
           echo "Updating pkgrel to $LOCAL_PKGREL"
           sed -i "s/pkgrel=.*/pkgrel=$LOCAL_PKGREL/" PKGBUILD
           
-          echo "Downloading new AppImage..."
-          wget -O cursor-${{ steps.check.outputs.latest_version }}.AppImage https://downloader.cursor.sh/linux/appImage/x64
-          
           echo "Calculating SHA256 sum..."
           NEW_SHA256=$(sha256sum cursor-${{ steps.check.outputs.latest_version }}.AppImage | awk '{print $1}')
           echo "New SHA256: $NEW_SHA256"
+          
+          # Update PKGBUILD to use GitHub Actions artifact URL
+          sed -i "s|source=.*|source=(\"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/cursor-appimage\")|" PKGBUILD
           
           echo "Updating SHA256 sum in PKGBUILD..."
           OLD_SHA256=$(grep -oP "sha256sums_x86_64=\('\K[^']+" PKGBUILD)
@@ -95,6 +116,29 @@ jobs:
           commit_message: "Update to version ${{ steps.check.outputs.latest_version }}"
           allow_empty_commits: false
           ssh_keyscan_types: rsa,ecdsa,ed25519
+
+      - name: Create Release
+        if: steps.check.outputs.update_needed == 'true'
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.check.outputs.latest_version }}
+          release_name: Release ${{ steps.check.outputs.latest_version }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        if: steps.check.outputs.update_needed == 'true'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./cursor-${{ steps.check.outputs.latest_version }}.AppImage
+          asset_name: cursor-${{ steps.check.outputs.latest_version }}.AppImage
+          asset_content_type: application/octet-stream
 
       - name: Summary
         run: |
