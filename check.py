@@ -48,7 +48,7 @@ def get_local_pkgbuild_info():
         content = file.read()
     version_match = re.search(r'pkgver=([^\n]+)', content)
     rel_match = re.search(r'pkgrel=(\d+)', content)
-    source_match = re.search(r'source_x86_64=\("([^"]+)"', content)
+    source_match = re.search(r'source_x86_64=\(".*?::([^"]+)"', content)
     if version_match and rel_match and source_match:
         return version_match.group(1).strip(), rel_match.group(1), source_match.group(1)
     else:
