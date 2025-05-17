@@ -60,9 +60,7 @@ paru -S cursor-bin
 - `PKGBUILD` - The main package build script
 - `check.py` - Script to check for new Cursor versions
 - `update_pkgbuild.py` - Script to update PKGBUILD automatically
-- `cursor-bin.desktop.in` - Desktop entry template
 - `cursor-bin.sh` - Launch script
-- `cursor.png` - Application icon
 
 ## Development Notes
 
