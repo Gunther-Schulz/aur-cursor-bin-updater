@@ -39,6 +39,5 @@ package() {
 }
 
 post_install() {
-    update-desktop-database -q
     xdg-icon-resource forceupdate
 }
