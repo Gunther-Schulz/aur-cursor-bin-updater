@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Cursor
-Exec=/usr/bin/cursor --no-sandbox %U
+Exec=/usr/bin/cursor %U
 Terminal=false
 Type=Application
 Icon=cursor
