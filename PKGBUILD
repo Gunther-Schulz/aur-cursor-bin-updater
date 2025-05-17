@@ -3,7 +3,7 @@
 pkgname=cursor-bin
 pkgver=0.50.4
 pkgrel=1
-pkgdesc="Cursor App - AI-first coding environment"
+pkgdesc="AI-first coding environment"
 arch=('x86_64')
 url="https://www.cursor.com/"
 license=('custom:Proprietary')  # Replace with the correct license if known
