@@ -23,16 +23,10 @@ prepare() {
 }
 
 package() {
-    # Create directories
-    install -d "${pkgdir}/opt/${pkgname}"
-    install -d "${pkgdir}/usr/bin"
-    install -d "${pkgdir}/usr/share/applications"
-    install -d "${pkgdir}/usr/share/icons"
-
     # Install files with proper permissions
-    install -m644 "${srcdir}/cursor-cursor.desktop" "${pkgdir}/usr/share/applications/cursor-cursor.desktop"
-    install -m644 "${srcdir}/cursor.png" "${pkgdir}/usr/share/icons/cursor.png"
-    install -m755 "${srcdir}/${_appimage}" "${pkgdir}/opt/${pkgname}/${pkgname}.AppImage"
+    install -Dm644 "${srcdir}/cursor-cursor.desktop" "${pkgdir}/usr/share/applications/cursor-cursor.desktop"
+    install -Dm644 "${srcdir}/cursor.png" "${pkgdir}/usr/share/icons/cursor.png"
+    install -Dm755 "${srcdir}/${_appimage}" "${pkgdir}/opt/${pkgname}/${pkgname}.AppImage"
 
     # Install executable to be called 'cursor', that can load user flags from $XDG_CONFIG_HOME/cursor-flags.conf
     install -m755 "${srcdir}/${pkgname}.sh" "${pkgdir}/usr/bin/cursor"
