@@ -37,7 +37,3 @@ package() {
     # Install executable to be called 'cursor', that can load user flags from $XDG_CONFIG_HOME/cursor-flags.conf
     install -m755 "${srcdir}/${pkgname}.sh" "${pkgdir}/usr/bin/cursor"
 }
-
-post_install() {
-    xdg-icon-resource forceupdate
-}
