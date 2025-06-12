@@ -3,42 +3,43 @@
 pkgname=cursor-bin
 pkgver=1.1.0
 pkgrel=1
-pkgdesc="Cursor App - AI-first coding environment"
+pkgdesc="AI-first coding environment"
 arch=('x86_64')
 url="https://www.cursor.com/"
-license=('custom:Proprietary')  # Replace with the correct license if known
-depends=('fuse2' 'gtk3')
-options=(!strip)
+license=(LicenseRef-Cursor_EULA)
+depends=(alsa-lib cairo expat gtk3 libxkbfile nspr nss 
+  ripgrep)
+options=(!strip) # for sign of ext
 _appimage="${pkgname}-${pkgver}.AppImage"
-source_x86_64=("${_appimage}::https://downloads.cursor.com/production/b122cddec7bf4e6d7cc8badbae006d08b8e8105c/linux/x64/Cursor-1.1.0-x86_64.AppImage" "cursor.png" "${pkgname}.desktop.in" "${pkgname}.sh")
-noextract=("${_appimage}")
+source_x86_64=("${_appimage}::https://downloads.cursor.com/production/b122cddec7bf4e6d7cc8badbae006d08b8e8105c/linux/x64/Cursor-1.1.0-x86_64.AppImage"
+${pkgname}.sh)
+# Don't include electron-flags.conf as https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/1.100.3-1/code.sh
 sha512sums_x86_64=('44220bf0dd2889c6353b2a65c63703edb6980a93710a937fcd49136774193325b98af67b55a854a248e564c3cdd9974f55026a6b00e9e194bcebab112672377b'
-                   'f948c5718c2df7fe2cae0cbcd95fd3010ecabe77c699209d4af5438215daecd74b08e03d18d07a26112bcc5a80958105fda724768394c838d08465fce5f473e7'
-                   '813d42d46f2e6aad72a599c93aeb0b11a668ad37b3ba94ab88deec927b79c34edf8d927e7bb2140f9147b086562736c3f708242183130824dd74b7a84ece67aa'
-                   'ec3fa93a7df3ac97720d57e684f8745e3e34f39d9976163ea0001147961ca4caeb369de9d1e80c877bb417a0f1afa49547d154dde153be7fe6615092894cff47')
+                   'a1793990679da5c6b0af03103d3dc2614c0cc63b583e2be722fa5137b188f620f2c3c8248bae52921a2e85502112ab2e48c84ffc18c4e77274cd674be1515a05')
 
-prepare() {
-    # Set correct version in .desktop file
-    sed "s/@@PKGVERSION@@/${pkgver}/g" "${srcdir}/${pkgname}.desktop.in" > "${srcdir}/cursor-cursor.desktop"
+build() {
+  rm -rf squashfs-root # for unclean BUILDDIR
+  chmod +x ${_appimage}; ./${_appimage} --appimage-extract 1> /dev/null
+  cd squashfs-root
+  # Save 80MB+, translated by ext
+  mv usr/share/cursor/locales/en-US.pak e.pak
+  rm -r usr/share/cursor/{locales,resources/{linux,completions,appimageupdatetool.AppImage}}
+  install -Dm644 e.pak usr/share/cursor/locales/en-US.pak
+  # Avoid SUID at nonfree app: chmod 4755 chrome-sandbox
+  # Replace binary with optimized one
+  ln -svf /usr/bin/rg usr/share/cursor/resources/app/node_modules/@vscode/ripgrep/bin/rg
+  # Patch launcher
+  mv -v usr/share/cursor/{cursor,electron}
+  install -Dvm755 "${srcdir}/${pkgname}.sh" usr/share/cursor/cursor
+  # Fix unused icon from desktop entries
+  rm -r usr/share/icons
+  mv co.anysphere.cursor.png usr/share/pixmaps/co.anysphere.cursor.png
+  # License
+  install -d usr/share/licenses/${pkgname}
+  mv -v usr/share/cursor/resources/app/LICENSE.txt usr/share/licenses/${pkgname}/LICENSE
+  mv -v usr/share/cursor/resources/app/ThirdPartyNotices.txt usr/share/licenses/${pkgname}/
 }
 
-package() {
-    # Create directories
-    install -d "${pkgdir}/opt/${pkgname}"
-    install -d "${pkgdir}/usr/bin"
-    install -d "${pkgdir}/usr/share/applications"
-    install -d "${pkgdir}/usr/share/icons"
-
-    # Install files with proper permissions
-    install -m644 "${srcdir}/cursor-cursor.desktop" "${pkgdir}/usr/share/applications/cursor-cursor.desktop"
-    install -m644 "${srcdir}/cursor.png" "${pkgdir}/usr/share/icons/cursor.png"
-    install -m755 "${srcdir}/${_appimage}" "${pkgdir}/opt/${pkgname}/${pkgname}.AppImage"
-
-    # Install executable to be called 'cursor', that can load user flags from $XDG_CONFIG_HOME/cursor-flags.conf
-    install -m755 "${srcdir}/${pkgname}.sh" "${pkgdir}/usr/bin/cursor"
-}
-
-post_install() {
-    update-desktop-database -q
-    xdg-icon-resource forceupdate
+package(){
+  cp -r --reflink=auto squashfs-root/usr "$pkgdir"/usr
 }
