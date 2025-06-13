@@ -1,7 +1,7 @@
 # Maintainer: Gunther Schulz <dev@guntherschulz.de>
 
 pkgname=cursor-bin
-pkgver=1.1.0
+pkgver=1.1.2
 pkgrel=1
 pkgdesc="AI-first coding environment"
 arch=('x86_64')
@@ -11,10 +11,10 @@ depends=(alsa-lib cairo expat gtk3 libxkbfile nspr nss
   ripgrep)
 options=(!strip) # for sign of ext
 _appimage="${pkgname}-${pkgver}.AppImage"
-source_x86_64=("${_appimage}::https://downloads.cursor.com/production/b122cddec7bf4e6d7cc8badbae006d08b8e8105c/linux/x64/Cursor-1.1.0-x86_64.AppImage"
+source_x86_64=("${_appimage}::https://downloads.cursor.com/production/b122cddec7bf4e6d7cc8badbae006d08b8e8105c/linux/x64/Cursor-1.1.2-x86_64.AppImage"
 ${pkgname}.sh)
 # Don't include electron-flags.conf as https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/1.100.3-1/code.sh
-sha512sums_x86_64=('44220bf0dd2889c6353b2a65c63703edb6980a93710a937fcd49136774193325b98af67b55a854a248e564c3cdd9974f55026a6b00e9e194bcebab112672377b'
+sha512sums_x86_64=('c10b4b32b984ca260aed03f8a1f426c35d8763b0d3a878679c1c1ab9a0471e3447488bdaec5b072b2968f3149708c4f47d0947ee5ab7696ad9b1954aa99dada6'
                    'a1793990679da5c6b0af03103d3dc2614c0cc63b583e2be722fa5137b188f620f2c3c8248bae52921a2e85502112ab2e48c84ffc18c4e77274cd674be1515a05')
 
 build() {
