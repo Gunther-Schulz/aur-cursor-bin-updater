@@ -7,5 +7,5 @@ if [[ -f $XDG_CONFIG_HOME/cursor-flags.conf ]]; then
   CURSOR_USER_FLAGS="$(sed 's/#.*//' $XDG_CONFIG_HOME/cursor-flags.conf | tr '\n' ' ')"
 fi
 
-# Launch
-exec /opt/cursor-bin/cursor-bin.AppImage "$@" $CURSOR_USER_FLAGS
+# Launch with AppImageLauncher disabled only for this process
+APPIMAGELAUNCHER_DISABLE=TRUE exec /opt/cursor-bin/cursor-bin.AppImage "$@" $CURSOR_USER_FLAGS
