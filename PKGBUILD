@@ -1,44 +1,81 @@
 # Maintainer: Gunther Schulz <dev@guntherschulz.de>
+# Contributor: Konstantin <mazix@bk.ru>
 
 pkgname=cursor-bin
 pkgver=1.2.1
 pkgrel=1
-pkgdesc="Cursor App - AI-first coding environment"
+pkgdesc="Cursor – AI-first coding environment"
 arch=('x86_64')
-url="https://www.cursor.com/"
-license=('custom:Proprietary')  # Replace with the correct license if known
+url='https://www.cursor.com/'
+license=('custom:Proprietary')
 depends=('fuse2' 'gtk3')
 options=(!strip)
+
 _appimage="${pkgname}-${pkgver}.AppImage"
-source_x86_64=("${_appimage}::https://downloads.cursor.com/production/031e7e0ff1e2eda9c1a0f5df67d44053b059c5df/linux/x64/Cursor-1.2.1-x86_64.AppImage" "cursor.png" "${pkgname}.desktop.in" "${pkgname}.sh")
-noextract=("${_appimage}")
-sha512sums_x86_64=('dc99fb2900bd5d3dba66c8ecfd3a897d6bef8ea32c0739377044e1086e4b160d4eb40c872fd1f2d3e06c046d3d9efcdd3f6b613efbcf1fab2bc9643716d1f57f'
-                   'f948c5718c2df7fe2cae0cbcd95fd3010ecabe77c699209d4af5438215daecd74b08e03d18d07a26112bcc5a80958105fda724768394c838d08465fce5f473e7'
-                   '813d42d46f2e6aad72a599c93aeb0b11a668ad37b3ba94ab88deec927b79c34edf8d927e7bb2140f9147b086562736c3f708242183130824dd74b7a84ece67aa'
-                   'ec3fa93a7df3ac97720d57e684f8745e3e34f39d9976163ea0001147961ca4caeb369de9d1e80c877bb417a0f1afa49547d154dde153be7fe6615092894cff47')
+
+# Note: AppImage is NOT listed here; we download it in prepare()
+source_x86_64=(
+  'cursor-bin.desktop.in'
+  'cursor.png'
+  'cursor-bin.sh'
+)
+sha512sums_x86_64=('SKIP' 'SKIP' 'SKIP')
 
 prepare() {
-    # Set correct version in .desktop file
-    sed "s/@@PKGVERSION@@/${pkgver}/g" "${srcdir}/${pkgname}.desktop.in" > "${srcdir}/cursor-cursor.desktop"
+  cd "${srcdir}"
+
+  # Fetch AppImage if missing
+  if [[ ! -f ${_appimage} ]]; then
+    msg2 "Downloading ${_appimage} …"
+
+    # custom URL override
+    if [[ -n ${CURSOR_URL} ]]; then
+      dl_url="${CURSOR_URL}"
+      msg2 "Using CURSOR_URL=${dl_url}"
+    else
+      # scrape a fresh presigned link
+      dl_url=$(curl -fsL https://www.cursor.so/download |
+        grep -oP 'https://downloads.cursor.com/[^"]+x64/Cursor-[\d.]+-x86_64.AppImage' |
+        head -n1)
+    fi
+
+    if [[ -z ${dl_url} ]]; then
+      error "Could not obtain download URL. Supply CURSOR_URL or place the AppImage manually."
+      exit 1
+    fi
+
+    for i in {1..3}; do
+      curl -fL --retry 3 --retry-delay 2 -o "${_appimage}" "${dl_url}" && break
+      sleep 5
+    done
+
+    [[ -s ${_appimage} ]] || { error "Download failed."; exit 1; }
+  fi
+
+  # Re-inject real checksum so future upgrades don’t re-download
+  sha=$(sha512sum "${_appimage}" | awk '{print $1}')
+  sed -i "s/^sha512sums_x86_64=.*/sha512sums_x86_64=('${sha}' 'SKIP' 'SKIP')/" \
+      "${startdir}/PKGBUILD"
+
+  # Prepare .desktop
+  sed "s/@@PKGVERSION@@/${pkgver}/g" \
+      cursor-bin.desktop.in > cursor.desktop
 }
 
 package() {
-    # Create directories
-    install -d "${pkgdir}/opt/${pkgname}"
-    install -d "${pkgdir}/usr/bin"
-    install -d "${pkgdir}/usr/share/applications"
-    install -d "${pkgdir}/usr/share/icons"
+  install -Dm755 "${srcdir}/${_appimage}" \
+    "${pkgdir}/opt/${pkgname}/${pkgname}.AppImage"
 
-    # Install files with proper permissions
-    install -m644 "${srcdir}/cursor-cursor.desktop" "${pkgdir}/usr/share/applications/cursor-cursor.desktop"
-    install -m644 "${srcdir}/cursor.png" "${pkgdir}/usr/share/icons/cursor.png"
-    install -m755 "${srcdir}/${_appimage}" "${pkgdir}/opt/${pkgname}/${pkgname}.AppImage"
+  install -Dm755 "${srcdir}/cursor-bin.sh" \
+    "${pkgdir}/usr/bin/cursor"
 
-    # Install executable to be called 'cursor', that can load user flags from $XDG_CONFIG_HOME/cursor-flags.conf
-    install -m755 "${srcdir}/${pkgname}.sh" "${pkgdir}/usr/bin/cursor"
+  install -Dm644 "${srcdir}/cursor.desktop" \
+    "${pkgdir}/usr/share/applications/cursor.desktop"
+  install -Dm644 "${srcdir}/cursor.png" \
+    "${pkgdir}/usr/share/icons/cursor.png"
 }
 
 post_install() {
-    update-desktop-database -q
-    xdg-icon-resource forceupdate
+  update-desktop-database -q
+  xdg-icon-resource forceupdate
 }
