@@ -2,7 +2,7 @@
 # Contributor: Konstantin <mazix@bk.ru>
 
 pkgname=cursor-bin
-pkgver=1.2.1
+pkgver=1.2.2
 pkgrel=1
 pkgdesc="Cursor App - AI-first coding environment"
 arch=('x86_64')
@@ -10,16 +10,6 @@ url="https://www.cursor.com/"
 license=('custom:Proprietary')
 depends=('fuse2' 'gtk3')
 options=(!strip)
-
-_appimage="${pkgname}-${pkgver}.AppImage"
-
-# Note: AppImage is NOT listed here; we download it in prepare()
-source_x86_64=(
-    'cursor-bin.desktop.in'
-    'cursor.png'
-    'cursor-bin.sh'
-)
-sha512sums_x86_64=('SKIP' 'SKIP' 'SKIP')
 
 prepare() {
     cd "${srcdir}"
