@@ -8,4 +8,5 @@ if [[ -f $XDG_CONFIG_HOME/cursor-flags.conf ]]; then
 fi
 
 # Launch
-exec /opt/cursor-bin/cursor-bin.AppImage "$@" $CURSOR_USER_FLAGS
+exec /opt/cursor-bin/cursor-bin.AppImage --no-sandbox "$@" $CURSOR_USER_FLAGS &> /dev/null &
+disown
