@@ -214,8 +214,11 @@ def update_pkgbuild(pkgbuild_lines, json_data):
         debug_print("Could not determine Electron version, using fallback")
         electron_version = "electron28"  # Fallback version
 
+    import re
+
     updated_lines = []
     in_sha = False
+    in_depends = False
 
     for line in pkgbuild_lines:
         if line.startswith("pkgver="):
@@ -224,6 +227,31 @@ def update_pkgbuild(pkgbuild_lines, json_data):
             updated_lines.append(f"pkgrel={new_rel}\n")
         elif line.startswith("_commit="):
             updated_lines.append(f"_commit={new_commit}\n")
+        elif line.startswith("depends=("):
+            # Start of depends array
+            in_depends = True
+            if "electron" in line:
+                # Single line depends with electron
+                updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
+                updated_lines.append(updated_line)
+            else:
+                updated_lines.append(line)
+        elif in_depends and line.strip().endswith(")"):
+            # End of depends array
+            in_depends = False
+            if "electron" in line:
+                # Update electron version in this line
+                updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
+                updated_lines.append(updated_line)
+            else:
+                updated_lines.append(line)
+        elif in_depends and "electron" in line:
+            # Middle line of depends array containing electron
+            updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
+            updated_lines.append(updated_line)
+        elif in_depends:
+            # Middle line of depends array without electron
+            updated_lines.append(line)
         elif line.startswith("source="):
             # Update the source line with the new commit and version
             updated_lines.append(f'source=("${{_appimage}}::https://downloads.cursor.com/production/{new_commit}/linux/x64/Cursor-{new_version}-x86_64.AppImage"\n')
@@ -237,14 +265,11 @@ def update_pkgbuild(pkgbuild_lines, json_data):
             # This is the last line of sha512sums, add the second checksum
             updated_lines.append(f"            '937299c6cb6be2f8d25f7dbc95cf77423875c5f8353b8bd6cd7cc8e5603cbf8405b14dbf8bd615db2e3b36ed680fc8e1909410815f7f8587b7267a699e00ab37')\n")
             in_sha = False
-        elif line.startswith("  # Electron version determined during build process"):
+        elif line.startswith("  # Extract Electron version from depends array"):
             # Keep the comment
             updated_lines.append(line)
         elif line.startswith("  _electron="):
-            # Update the electron version
-            updated_lines.append(f"  _electron={electron_version}\n")
-        elif line.startswith("  echo $_electron"):
-            # Keep the echo line
+            # Keep the dynamic extraction line
             updated_lines.append(line)
         elif not in_sha:
             updated_lines.append(line)

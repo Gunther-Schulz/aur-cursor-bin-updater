@@ -6,3 +6,6 @@ pkg
 *.zst
 *.AppImage
  
+cursor.sh
+
+__pycache__/
