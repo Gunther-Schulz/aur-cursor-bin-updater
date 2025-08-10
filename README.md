@@ -60,44 +60,65 @@ paru -S cursor-bin
 - `PKGBUILD` - The main package build script
 - `check.py` - Script to check for new Cursor versions
 - `update_pkgbuild.py` - Script to update PKGBUILD automatically
-- `cursor-bin.desktop.in` - Desktop entry template
-- `cursor-bin.sh` - Launch script
-- `cursor.png` - Application icon
+- `README.md` - This documentation file
 
 ## Development Notes
 
 - Build artifacts and downloaded files are ignored via `.gitignore`
-- The scripts check both ToDesktop and direct S3 URLs for updates
-- Version checks include both stable and preview channels
+- The scripts check the official Cursor API for updates
+- Version checks are performed against the stable release channel
+- The `update_pkgbuild.py` script automatically determines the correct Electron version from VSCode's package-lock.json
+- The script generates a `cursor.sh` launch script by transforming Arch Linux's `code.sh` template
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Build fails with checksum mismatch**:
-
+   - The script automatically calculates and updates checksums
+   - If manual intervention is needed, regenerate checksums:
    ```bash
-   # Regenerate checksums
    updpkgsums
    ```
 
 2. **Package won't install**:
-
+   - Check dependencies:
    ```bash
-   # Check dependencies
-   pacman -Syu fuse2 gtk3
+   pacman -Syu ripgrep xdg-utils gcc-libs hicolor-icon-theme libxkbfile electron28
    ```
 
 3. **Cursor won't launch**:
+   - Ensure the `cursor.sh` script was generated:
    ```bash
-   # Check if FUSE is running
-   systemctl status systemd-fusectl
+   ls -la cursor.sh
+   ```
+   - Check if the script is executable:
+   ```bash
+   chmod +x cursor.sh
+   ```
+
+4. **Update script fails**:
+   - Run in debug mode for detailed information:
+   ```bash
+   DEBUG=true python check.py
+   DEBUG=true python update_pkgbuild.py check_output.json
    ```
 
 ### Debug Mode
 
-Run the check script in debug mode for more information:
+Run the scripts in debug mode for more information:
 
 ```bash
 DEBUG=true python check.py
+DEBUG=true python update_pkgbuild.py check_output.json
 ```
+
+### Verification Features
+
+The update script includes comprehensive verification to ensure updates are applied correctly:
+
+- **Change tracking**: Monitors which specific PKGBUILD values were updated
+- **Content validation**: Verifies all expected values are present after updates
+- **File integrity**: Confirms files are written successfully to disk
+- **Error handling**: Provides clear error messages and stops on critical failures
+- **Automatic cleanup**: Removes temporary files and handles exceptions gracefully

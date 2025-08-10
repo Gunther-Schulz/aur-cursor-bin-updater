@@ -179,10 +179,14 @@ def update_pkgbuild(pkgbuild_lines, json_data):
     debug_print(f"Downloading AppImage once for SHA512 and extraction: {appimage_url}")
 
     # Download the AppImage once and save to memory
-    response = requests.get(appimage_url, timeout=60)
-    response.raise_for_status()
-    appimage_data = response.content
-    response.close()
+    try:
+        response = requests.get(appimage_url, timeout=60)
+        response.raise_for_status()
+        appimage_data = response.content
+        response.close()
+        debug_print(f"Successfully downloaded AppImage, size: {len(appimage_data)} bytes")
+    except Exception as e:
+        raise RuntimeError(f"Failed to download AppImage: {str(e)}")
 
     # Calculate SHA512
     debug_print("Calculating SHA512...")
@@ -193,10 +197,13 @@ def update_pkgbuild(pkgbuild_lines, json_data):
 
     # Save the AppImage to a temporary file for extraction
     debug_print("Saving AppImage to temporary file for extraction...")
-    with tempfile.NamedTemporaryFile(suffix='.AppImage', delete=False, mode='wb') as temp_file:
-        temp_file.write(appimage_data)
-        temp_file_path = temp_file.name
-    debug_print(f"Saved AppImage to {temp_file_path}, size: {len(appimage_data)} bytes")
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.AppImage', delete=False, mode='wb') as temp_file:
+            temp_file.write(appimage_data)
+            temp_file_path = temp_file.name
+        debug_print(f"Saved AppImage to {temp_file_path}, size: {len(appimage_data)} bytes")
+    except Exception as e:
+        raise RuntimeError(f"Failed to save temporary AppImage: {str(e)}")
 
     # Determine Electron version
     debug_print("Starting Electron version determination...")
@@ -214,72 +221,165 @@ def update_pkgbuild(pkgbuild_lines, json_data):
         debug_print("Could not determine Electron version, using fallback")
         electron_version = "electron28"  # Fallback version
 
-    import re
-
-    updated_lines = []
-    in_sha = False
-    in_depends = False
-
-    for line in pkgbuild_lines:
-        if line.startswith("pkgver="):
-            updated_lines.append(f"pkgver={new_version}\n")
-        elif line.startswith("pkgrel="):
-            updated_lines.append(f"pkgrel={new_rel}\n")
-        elif line.startswith("_commit="):
-            updated_lines.append(f"_commit={new_commit}\n")
-        elif line.startswith("depends=("):
-            # Start of depends array
-            in_depends = True
-            if "electron" in line:
-                # Single line depends with electron
-                updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
-                updated_lines.append(updated_line)
-            else:
-                updated_lines.append(line)
-        elif in_depends and line.strip().endswith(")"):
-            # End of depends array
-            in_depends = False
-            if "electron" in line:
-                # Update electron version in this line
-                updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
-                updated_lines.append(updated_line)
-            else:
-                updated_lines.append(line)
-        elif in_depends and "electron" in line:
-            # Middle line of depends array containing electron
-            updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
-            updated_lines.append(updated_line)
-        elif in_depends:
-            # Middle line of depends array without electron
-            updated_lines.append(line)
-        elif line.startswith("source="):
-            # Update the source line with the new commit and version
-            updated_lines.append(f'source=("${{_appimage}}::https://downloads.cursor.com/production/{new_commit}/linux/x64/Cursor-{new_version}-x86_64.AppImage"\n')
-        elif line.startswith("https://gitlab.archlinux.org"):
-            # This is the second source line (code.sh)
-            updated_lines.append(line)
-        elif line.startswith("sha512sums="):
-            updated_lines.append(f"sha512sums=('{appimage_sha512}'\n")
-            in_sha = True
-        elif in_sha and line.strip().endswith(")"):
-            # This is the last line of sha512sums, add the second checksum
-            updated_lines.append(f"            '937299c6cb6be2f8d25f7dbc95cf77423875c5f8353b8bd6cd7cc8e5603cbf8405b14dbf8bd615db2e3b36ed680fc8e1909410815f7f8587b7267a699e00ab37')\n")
-            in_sha = False
-        elif line.startswith("  # Extract Electron version from depends array"):
-            # Keep the comment
-            updated_lines.append(line)
-        elif line.startswith("  _electron="):
-            # Keep the dynamic extraction line
-            updated_lines.append(line)
-        elif not in_sha:
-            updated_lines.append(line)
-
     # Clean up temporary file
     if os.path.exists(temp_file_path):
         os.unlink(temp_file_path)
         debug_print(f"Cleaned up temporary file: {temp_file_path}")
 
-    return updated_lines
+    updated_lines = []
+    changes_made = {
+        'pkgver': False,
+        'pkgrel': False,
+        '_commit': False,
+        '_appimage': False,
+        'electron': False,
+        'source': False,
+        'sha512sums': False
+    }
+
+    for line in pkgbuild_lines:
+        # Update specific values while preserving everything else
+        if line.startswith("pkgver="):
+            updated_lines.append(f"pkgver={new_version}\n")
+            changes_made['pkgver'] = True
+        elif line.startswith("pkgrel="):
+            updated_lines.append(f"pkgrel={new_rel}\n")
+            changes_made['pkgrel'] = True
+        elif line.startswith("_commit="):
+            updated_lines.append(f"_commit={new_commit}\n")
+            changes_made['_commit'] = True
+        elif line.startswith("_appimage="):
+            # Update the _appimage variable with new version
+            updated_lines.append(f'_appimage="${{pkgname}}-{new_version}.AppImage"\n')
+            changes_made['_appimage'] = True
+        elif line.startswith("depends=("):
+            # Start of depends array - preserve the line and check for electron
+            if "electron" in line:
+                # Single line depends with electron
+                updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
+                updated_lines.append(updated_line)
+                changes_made['electron'] = True
+            else:
+                updated_lines.append(line)
+        elif "'electron" in line:
+            # Any line containing electron dependency
+            updated_line = re.sub(r"'electron\d+'", f"'{electron_version}'", line)
+            updated_lines.append(updated_line)
+            changes_made['electron'] = True
+        elif line.startswith("source=("):
+            # Update the source line with new version and commit
+            updated_lines.append(f'source=("${{_appimage}}::https://downloads.cursor.com/production/{new_commit}/linux/x64/Cursor-{new_version}-x86_64.AppImage")\n')
+            changes_made['source'] = True
+        elif line.startswith("sha512sums=("):
+            # Update the checksum
+            updated_lines.append(f"sha512sums=('{appimage_sha512}')\n")
+            changes_made['sha512sums'] = True
+        else:
+            # Preserve all other lines exactly as they are
+            updated_lines.append(line)
+
+    # Verify all expected changes were made
+    debug_print("Verifying all expected changes were made...")
+    for change, made in changes_made.items():
+        if not made:
+            debug_print(f"WARNING: Expected change '{change}' was not made")
+        else:
+            debug_print(f"✓ Change '{change}' was made successfully")
+
+    # Verify the updated content contains expected values
+    updated_content = ''.join(updated_lines)
+    verification_errors = []
+
+    if f"pkgver={new_version}" not in updated_content:
+        verification_errors.append(f"pkgver not updated to {new_version}")
+
+    if f"pkgrel={new_rel}" not in updated_content:
+        verification_errors.append(f"pkgrel not updated to {new_rel}")
+
+    if f"_commit={new_commit}" not in updated_content:
+        verification_errors.append(f"_commit not updated to {new_commit}")
+
+    if f"'{electron_version}'" not in updated_content:
+        verification_errors.append(f"electron version not updated to {electron_version}")
+
+    if appimage_sha512 not in updated_content:
+        verification_errors.append("sha512sums not updated")
+
+    if verification_errors:
+        error_msg = "PKGBUILD verification failed:\n" + "\n".join(f"- {error}" for error in verification_errors)
+        raise RuntimeError(error_msg)
+
+    debug_print("✓ All PKGBUILD verifications passed")
+    return updated_lines, electron_version
+
+
+def download_and_transform_code_sh(electron_version):
+    """Download code.sh from Arch Linux packaging and transform it to cursor.sh."""
+    debug_print("Downloading code.sh from Arch Linux packaging...")
+
+    code_sh_url = "https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.sh"
+
+    try:
+        response = requests.get(code_sh_url, timeout=30)
+        response.raise_for_status()
+        code_sh_content = response.text
+
+        debug_print("Successfully downloaded code.sh, transforming to cursor.sh...")
+
+        # Transform the content using the same sed logic from PKGBUILD
+        cursor_sh_content = code_sh_content
+
+        # Apply all the transformations
+        cursor_sh_content = re.sub(r'code-flags', 'cursor-flags', cursor_sh_content)
+        cursor_sh_content = re.sub(r'/usr/lib/code', '/usr/share/cursor/resources/app', cursor_sh_content)
+        cursor_sh_content = re.sub(r'/usr/lib/code/out/cli\.js', '/usr/share/cursor/resources/app/out/cli.js', cursor_sh_content)
+        cursor_sh_content = re.sub(r'/usr/lib/code/code\.mjs', '--app=/usr/share/cursor/resources/app', cursor_sh_content)
+        cursor_sh_content = re.sub(r'name=electron', f'name={electron_version}', cursor_sh_content)
+
+        debug_print("Transformation completed successfully")
+
+        # Verify the transformations were successful
+        debug_print("Starting verification...")
+
+        if not re.search(r'cursor-flags', cursor_sh_content):
+            raise ValueError("cursor-flags replacement failed")
+        debug_print("✓ cursor-flags verification passed")
+
+        if not re.search(f'name={electron_version}', cursor_sh_content):
+            raise ValueError(f"electron version replacement failed: expected {electron_version}")
+        debug_print("✓ electron version verification passed")
+
+        if not re.search(r'exec /usr/lib/\${name}/electron', cursor_sh_content):
+            raise ValueError("exec path not found in generated script")
+        debug_print("✓ exec path verification passed")
+
+        if not re.search(r'/usr/share/cursor/resources/app/out/cli\.js', cursor_sh_content):
+            raise ValueError("cli.js path replacement failed")
+        debug_print("✓ cli.js path verification passed")
+
+        if not re.search(r'/usr/share/cursor/resources/app/code\.mjs', cursor_sh_content):
+            debug_print(f"app path verification failed. Looking for '/usr/share/cursor/resources/app/code.mjs'")
+            debug_print(f"Content that might contain the path: {re.findall(r'/usr/share/cursor/resources/app/[^ ]*', cursor_sh_content)}")
+            raise ValueError("app path replacement failed")
+        debug_print("✓ app path verification passed")
+
+        # Verify no old paths remain
+        if re.search(r'/usr/lib/code', cursor_sh_content):
+            raise ValueError("old /usr/lib/code paths still present")
+        debug_print("✓ old paths verification passed")
+
+        debug_print("All verifications passed")
+
+        # Write the transformed cursor.sh file
+        with open('cursor.sh', 'w') as f:
+            f.write(cursor_sh_content)
+
+        debug_print("cursor.sh file created successfully")
+        return True
+
+    except Exception as e:
+        debug_print(f"Error downloading/transforming code.sh: {str(e)}")
+        return False
 
 
 if __name__ == "__main__":
@@ -296,18 +396,55 @@ if __name__ == "__main__":
 
         if check_output["update_needed"]:
             debug_print("Update needed, reading current PKGBUILD")
-            with open("PKGBUILD", "r") as f:
-                current_pkgbuild = f.readlines()
+            try:
+                with open("PKGBUILD", "r") as f:
+                    current_pkgbuild = f.readlines()
+                debug_print(f"Successfully read PKGBUILD with {len(current_pkgbuild)} lines")
+            except Exception as e:
+                raise RuntimeError(f"Failed to read PKGBUILD: {str(e)}")
 
             debug_print("Calling update_pkgbuild()")
-            updated_pkgbuild = update_pkgbuild(current_pkgbuild, check_output)
+            updated_pkgbuild, electron_version = update_pkgbuild(current_pkgbuild, check_output)
+
+            # Verify the updated PKGBUILD has the expected number of lines
+            if len(updated_pkgbuild) != len(current_pkgbuild):
+                debug_print(f"WARNING: Line count changed from {len(current_pkgbuild)} to {len(updated_pkgbuild)}")
 
             # Write the changes to the file
-            with open("PKGBUILD", "w") as f:
-                f.writelines(updated_pkgbuild)
+            try:
+                with open("PKGBUILD", "w") as f:
+                    f.writelines(updated_pkgbuild)
+                debug_print(f"Successfully wrote updated PKGBUILD to disk")
+            except Exception as e:
+                raise RuntimeError(f"Failed to write updated PKGBUILD: {str(e)}")
+
+            # Verify the file was written correctly
+            try:
+                with open("PKGBUILD", "r") as f:
+                    written_content = f.read()
+                if f"pkgver={check_output['new_version']}" not in written_content:
+                    raise RuntimeError("PKGBUILD was written but verification failed - pkgver not found")
+                if f"pkgrel={check_output['new_rel']}" not in written_content:
+                    raise RuntimeError("PKGBUILD was written but verification failed - pkgrel not found")
+                debug_print("✓ PKGBUILD file verification passed")
+            except Exception as e:
+                raise RuntimeError(f"PKGBUILD verification failed after writing: {str(e)}")
+
             debug_print(
                 f"PKGBUILD updated to version {check_output['new_version']} (release {check_output['new_rel']}) with commit {check_output['new_commit']}"
             )
+
+            # Download and transform code.sh
+            debug_print(f"Downloading and transforming code.sh for electron version: {electron_version}")
+            if not download_and_transform_code_sh(electron_version):
+                raise RuntimeError("Failed to download and transform code.sh")
+
+            # Verify cursor.sh was created
+            if not os.path.exists("cursor.sh"):
+                raise RuntimeError("cursor.sh was not created after transformation")
+
+            debug_print("✓ cursor.sh creation verified")
+
         else:
             print("No update needed.")
     except Exception as e:
