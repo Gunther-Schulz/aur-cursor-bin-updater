@@ -40,4 +40,8 @@ package() {
   mv usr "${pkgdir}"/usr
   sed -e "s|code-flags|cursor-flags|" -e "s|/usr/lib/code|/${_app}|" -e "s|/usr/lib/code/code.mjs|--app=/${_app}|" \
     -e "s|name=electron|name=${_electron}|" "${srcdir}"/code.sh | install -Dm755 /dev/stdin "${pkgdir}"/usr/share/cursor/cursor
+
+  # Fix native title bar
+  # https://github.com/cursor/cursor/issues/3108
+  sed -i 's|l\.frame=!1|(!On(o, i?.forceNativeTitlebar ? "native" : void 0) \&\& (l.frame = !1))|g' "/usr/share/cursor/resources/app/out/main.js"
 }
