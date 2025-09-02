@@ -320,12 +320,37 @@ class WorkflowTester:
         self.log("✅ All validations passed")
         return True
         
+    def setup_act_config(self):
+        """Setup act configuration to avoid interactive prompts"""
+        actrc_path = os.path.expanduser("~/.actrc")
+        
+        # Check if .actrc already exists
+        if os.path.exists(actrc_path):
+            self.log("Found existing ~/.actrc configuration")
+            return
+            
+        # Create .actrc with medium image as default
+        actrc_content = """# Act configuration - use medium image by default
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+"""
+        
+        try:
+            with open(actrc_path, 'w') as f:
+                f.write(actrc_content)
+            self.log("Created ~/.actrc to avoid interactive prompts")
+        except Exception as e:
+            self.log(f"Warning: Could not create ~/.actrc: {e}")
+            # Not critical - act will just prompt
+        
     def run_workflow_test(self):
         """Run the workflow using act with real-time output"""
         self.log("Running workflow with act...")
         self.log("This will take a few minutes as it downloads Docker images and processes files...")
         self.log("DEBUG mode is active - git push will be skipped for safe testing")
         self.log("You'll see real-time output below - watch for download progress and any errors...")
+        
+        # Ensure act doesn't prompt for image selection
+        self.setup_act_config()
         
         # Run act with workflow_dispatch event
         cmd = ["act", "workflow_dispatch", "--verbose"]
