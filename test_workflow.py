@@ -220,25 +220,32 @@ class WorkflowTester:
             self.log("❌ Backup file not found!", "ERROR")
             
     def get_test_checksum(self):
-        """Calculate checksum for the test version .deb file"""
-        self.log(f"Calculating checksum for test version {self.test_version}...")
+        """Verify test version exists and return placeholder checksum"""
+        self.log(f"Verifying test version {self.test_version} is accessible...")
         
         # Try to get checksum for the test version
         test_url = f"https://downloads.cursor.com/production/{self.test_commit}/linux/x64/deb/amd64/deb/cursor_{self.test_version}_amd64.deb"
         
         try:
-            # Check if the URL exists
-            response = requests.head(test_url, timeout=10)
+            self.log("Checking if test version URL is accessible (HEAD request)...")
+            # Check if the URL exists (quick HEAD request, no download)
+            response = requests.head(test_url, timeout=15)
             if response.status_code == 200:
-                self.log(f"✅ Test version URL exists: {test_url}")
-                # For now, use a placeholder - the workflow will recalculate anyway
+                file_size = response.headers.get('content-length', 'unknown')
+                if file_size != 'unknown':
+                    file_size_mb = int(file_size) / (1024*1024)
+                    self.log(f"✅ Test version URL exists: {file_size_mb:.1f} MB")
+                else:
+                    self.log(f"✅ Test version URL exists")
+                self.log("Using placeholder checksum - workflow will download and recalculate")
                 return "placeholder_checksum_will_be_recalculated_by_workflow"
             else:
-                self.log(f"❌ Test version URL not found: {response.status_code}")
-                # Fall back to using current version but different commit
+                self.log(f"⚠️  Test version URL returned {response.status_code}")
+                self.log("Using placeholder checksum anyway - workflow will handle download issues")
                 return "placeholder_checksum_will_be_recalculated_by_workflow"
         except Exception as e:
-            self.log(f"❌ Error checking test URL: {e}")
+            self.log(f"⚠️  Error checking test URL: {e}")
+            self.log("Using placeholder checksum anyway - workflow will handle download issues")
             return "placeholder_checksum_will_be_recalculated_by_workflow"
             
     def create_test_pkgbuild(self):
@@ -314,25 +321,22 @@ class WorkflowTester:
         return True
         
     def run_workflow_test(self):
-        """Run the workflow using act"""
+        """Run the workflow using act with real-time output"""
         self.log("Running workflow with act...")
         self.log("This will take a few minutes as it downloads Docker images and processes files...")
+        self.log("You'll see real-time output below - watch for download progress and any errors...")
         
         # Run act with workflow_dispatch event
         cmd = ["act", "workflow_dispatch", "--verbose"]
         
         self.log(f"Executing: {' '.join(cmd)}")
+        self.log("=" * 60)
         
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30 min timeout
+            # Run with real-time output instead of capturing
+            result = subprocess.run(cmd, timeout=1800)  # 30 min timeout, show output live
             
-            self.log("=== ACT STDOUT ===")
-            print(result.stdout)
-            
-            if result.stderr:
-                self.log("=== ACT STDERR ===")
-                print(result.stderr)
-                
+            self.log("=" * 60)
             if result.returncode == 0:
                 self.log("✅ Workflow completed successfully")
                 return True
@@ -342,6 +346,9 @@ class WorkflowTester:
                 
         except subprocess.TimeoutExpired:
             self.log("❌ Workflow timed out after 30 minutes", "ERROR")
+            return False
+        except KeyboardInterrupt:
+            self.log("❌ Workflow interrupted by user", "ERROR")
             return False
         except Exception as e:
             self.log(f"❌ Error running workflow: {e}", "ERROR")
