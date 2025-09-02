@@ -2,7 +2,7 @@
 
 pkgname=cursor-bin
 pkgver=1.5.9
-pkgrel=1
+pkgrel=18
 pkgdesc='AI-first coding environment'
 arch=('x86_64')
 url="https://www.cursor.com"
@@ -11,7 +11,6 @@ license=('LicenseRef-Cursor_EULA')
 depends=('ripgrep' 'xdg-utils'
   'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
 options=(!strip) # Don't break ext of VSCode
-# _appimage variable no longer needed for .deb format
 _commit=de327274300c6f38ec9f4240d11e82c3b0660b29 # sed'ded at GitHub WF
 source=("https://downloads.cursor.com/production/de327274300c6f38ec9f4240d11e82c3b0660b29/linux/x64/deb/amd64/deb/cursor_1.5.9_amd64.deb"
 https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.sh)
