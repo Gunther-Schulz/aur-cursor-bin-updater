@@ -103,40 +103,55 @@ def get_electron_version(vscode_version):
     return None
 
 
-def extract_vscode_version_from_appimage(temp_file_path):
-    """Extract VSCode version from the AppImage using unsquashfs."""
+def extract_vscode_version_from_deb(temp_file_path):
+    """Extract VSCode version from the .deb file using ar and tar."""
     try:
-        debug_print(f"Using existing temporary AppImage: {temp_file_path}")
+        debug_print(f"Using existing temporary .deb file: {temp_file_path}")
 
-        # Use AppImage's own extraction method
-        debug_print("Extracting product.json using AppImage extraction...")
-        # Make the AppImage executable
-        os.chmod(temp_file_path, 0o755)
+        # Extract the .deb file using ar and tar
+        debug_print("Extracting product.json using .deb extraction...")
+        
+        # Create a temporary directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            debug_print(f"Created temporary directory: {temp_dir}")
+            
+            # Extract data.tar.xz from the .deb file
+            result = subprocess.run([
+                'ar', 'x', temp_file_path, 'data.tar.xz'
+            ], cwd=temp_dir, capture_output=True, text=True, timeout=60)
 
-        # Use the AppImage's --appimage-extract option
-        result = subprocess.run([
-            temp_file_path, '--appimage-extract', 'usr/share/cursor/resources/app/product.json'
-        ], capture_output=True, text=True, timeout=60)
+            debug_print(f"ar extraction result: {result.returncode}")
+            if result.stderr:
+                debug_print(f"ar extraction stderr: {result.stderr}")
 
-        debug_print(f"AppImage extraction result: {result.returncode}")
-        if result.stderr:
-            debug_print(f"AppImage extraction stderr: {result.stderr}")
-
-        if result.returncode == 0:
-            product_json_path = 'squashfs-root/usr/share/cursor/resources/app/product.json'
-            if os.path.exists(product_json_path):
-                with open(product_json_path, 'r') as f:
-                    product_data = json.load(f)
-                vscode_version = product_data.get('vscodeVersion')
-                if vscode_version:
-                    debug_print(f"Found VSCode version: {vscode_version}")
-                    return vscode_version
+            if result.returncode == 0:
+                data_tar_path = os.path.join(temp_dir, 'data.tar.xz')
+                if os.path.exists(data_tar_path):
+                    # Extract product.json from data.tar.xz
+                    result = subprocess.run([
+                        'tar', '-xf', data_tar_path, './usr/share/cursor/resources/app/product.json'
+                    ], cwd=temp_dir, capture_output=True, text=True, timeout=60)
+                    
+                    debug_print(f"tar extraction result: {result.returncode}")
+                    if result.returncode == 0:
+                        product_json_path = os.path.join(temp_dir, 'usr/share/cursor/resources/app/product.json')
+                        if os.path.exists(product_json_path):
+                            with open(product_json_path, 'r') as f:
+                                product_data = json.load(f)
+                            vscode_version = product_data.get('vscodeVersion')
+                            if vscode_version:
+                                debug_print(f"Found VSCode version: {vscode_version}")
+                                return vscode_version
+                            else:
+                                debug_print("vscodeVersion not found in product.json")
+                        else:
+                            debug_print(f"product.json not found at: {product_json_path}")
+                    else:
+                        debug_print("tar extraction failed")
                 else:
-                    debug_print("vscodeVersion not found in product.json")
+                    debug_print(f"data.tar.xz not found at: {data_tar_path}")
             else:
-                debug_print(f"product.json not found at: {product_json_path}")
-        else:
-            debug_print("AppImage extraction failed")
+                debug_print("ar extraction failed")
 
     except Exception as e:
         debug_print(f"Error extracting VSCode version: {str(e)}")
@@ -174,33 +189,33 @@ def update_pkgbuild(pkgbuild_lines, json_data):
     new_rel = json_data["new_rel"]
     new_commit = json_data["new_commit"]
 
-    # Download AppImage once and use it for both SHA512 and extraction
-    appimage_url = f"https://downloads.cursor.com/production/{new_commit}/linux/x64/Cursor-{new_version}-x86_64.AppImage"
-    debug_print(f"Downloading AppImage once for SHA512 and extraction: {appimage_url}")
+    # Download .deb file once and use it for both SHA512 and extraction
+    deb_url = f"https://downloads.cursor.com/production/{new_commit}/linux/x64/deb/amd64/deb/cursor_{new_version}_amd64.deb"
+    debug_print(f"Downloading .deb file once for SHA512 and extraction: {deb_url}")
 
-    # Download the AppImage once and save to memory
-    response = requests.get(appimage_url, timeout=60)
+    # Download the .deb file once and save to memory
+    response = requests.get(deb_url, timeout=60)
     response.raise_for_status()
-    appimage_data = response.content
+    deb_data = response.content
     response.close()
 
     # Calculate SHA512
     debug_print("Calculating SHA512...")
     sha512_hash = hashlib.sha512()
-    sha512_hash.update(appimage_data)
-    appimage_sha512 = sha512_hash.hexdigest()
-    debug_print(f"Calculated AppImage SHA512: {appimage_sha512}")
+    sha512_hash.update(deb_data)
+    deb_sha512 = sha512_hash.hexdigest()
+    debug_print(f"Calculated .deb SHA512: {deb_sha512}")
 
-    # Save the AppImage to a temporary file for extraction
-    debug_print("Saving AppImage to temporary file for extraction...")
-    with tempfile.NamedTemporaryFile(suffix='.AppImage', delete=False, mode='wb') as temp_file:
-        temp_file.write(appimage_data)
+    # Save the .deb file to a temporary file for extraction
+    debug_print("Saving .deb file to temporary file for extraction...")
+    with tempfile.NamedTemporaryFile(suffix='.deb', delete=False, mode='wb') as temp_file:
+        temp_file.write(deb_data)
         temp_file_path = temp_file.name
-    debug_print(f"Saved AppImage to {temp_file_path}, size: {len(appimage_data)} bytes")
+    debug_print(f"Saved .deb file to {temp_file_path}, size: {len(deb_data)} bytes")
 
     # Determine Electron version
     debug_print("Starting Electron version determination...")
-    vscode_version = extract_vscode_version_from_appimage(temp_file_path)
+    vscode_version = extract_vscode_version_from_deb(temp_file_path)
     debug_print(f"VSCode version determined: {vscode_version}")
 
     if vscode_version:
@@ -223,15 +238,15 @@ def update_pkgbuild(pkgbuild_lines, json_data):
         elif line.startswith("pkgrel="):
             updated_lines.append(f"pkgrel={new_rel}\n")
         elif line.startswith("_commit="):
-            updated_lines.append(f"_commit={new_commit}\n")
+            updated_lines.append(f"_commit={new_commit} # sed'ded at GitHub WF\n")
         elif line.startswith("source="):
-            # Update the source line with the new commit and version
-            updated_lines.append(f'source=("${{_appimage}}::https://downloads.cursor.com/production/{new_commit}/linux/x64/Cursor-{new_version}-x86_64.AppImage"\n')
+            # Update the source line with the new commit and version (.deb format)
+            updated_lines.append(f'source=("https://downloads.cursor.com/production/{new_commit}/linux/x64/deb/amd64/deb/cursor_{new_version}_amd64.deb"\n')
         elif line.startswith("https://gitlab.archlinux.org"):
             # This is the second source line (code.sh)
             updated_lines.append(line)
         elif line.startswith("sha512sums="):
-            updated_lines.append(f"sha512sums=('{appimage_sha512}'\n")
+            updated_lines.append(f"sha512sums=('{deb_sha512}'\n")
             in_sha = True
         elif in_sha and line.strip().endswith(")"):
             # This is the last line of sha512sums, add the second checksum
