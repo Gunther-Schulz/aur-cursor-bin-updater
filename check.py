@@ -198,9 +198,13 @@ try:
                 new_commit = latest_commit
                 new_rel = "1"
             elif commit_update_needed:
-                new_version = local_version
-                new_commit = latest_commit
-                new_rel = str(int(local_rel) + 1)
+                # Same version, different commit in fallback mode
+                # This should not auto-increment pkgrel - requires manual intervention
+                print("::error::Fallback mode detected same version with different commit!")
+                print("::error::This requires manual pkgrel adjustment.")
+                print(f"::error::Current: version={local_version}, commit={local_commit}")
+                print(f"::error::Latest: version={latest_version}, commit={latest_commit}")
+                sys.exit(1)
             elif is_manual_rel_update:
                 new_version = local_version
                 new_commit = local_commit
