@@ -558,8 +558,8 @@ def validate_pkgbuild():
                 "status": "fail", 
                 "message": f"Electron detection failed: {error_msg}"
             })
-            # Don't fail validation for this - it's a nice-to-have test
-            # results["validation_successful"] = False
+            # This is actually important - if electron detection fails, something is wrong
+            results["validation_successful"] = False
             
         # Check 13: code.sh download and content test
         code_sh_test = test_code_sh_download()
