@@ -44,28 +44,38 @@ def validate_pkgbuild():
             results["checks"].append({"check": "version", "status": "fail", "message": f"Version is not {expected_version}"})
             results["validation_successful"] = False
             
-        # Check 2: Commit hash
+        # Check 2: pkgrel reset to 1 (for cursor updates)
+        if "pkgrel=1" in content:
+            results["checks"].append({"check": "pkgrel", "status": "pass", "message": "pkgrel is reset to 1 for cursor update"})
+        else:
+            # Extract actual pkgrel value for better error message
+            pkgrel_match = re.search(r'pkgrel=(\d+)', content)
+            actual_pkgrel = pkgrel_match.group(1) if pkgrel_match else "unknown"
+            results["checks"].append({"check": "pkgrel", "status": "fail", "message": f"pkgrel is {actual_pkgrel}, should be 1 for cursor update"})
+            results["validation_successful"] = False
+            
+        # Check 3: Commit hash
         if expected_commit in content:
             results["checks"].append({"check": "commit", "status": "pass", "message": "Commit hash is correct"})
         else:
             results["checks"].append({"check": "commit", "status": "fail", "message": "Commit hash is incorrect"})
             results["validation_successful"] = False
             
-        # Check 3: Electron version
+        # Check 4: Electron version
         if f"_electron={expected_electron}" in content:
             results["checks"].append({"check": "electron", "status": "pass", "message": f"Electron version is {expected_electron}"})
         else:
             results["checks"].append({"check": "electron", "status": "fail", "message": f"Electron version is not {expected_electron}"})
             results["validation_successful"] = False
             
-        # Check 4: SHA512 checksum
+        # Check 5: SHA512 checksum
         if expected_checksum in content:
             results["checks"].append({"check": "checksum", "status": "pass", "message": "SHA512 checksum is correct"})
         else:
             results["checks"].append({"check": "checksum", "status": "fail", "message": "SHA512 checksum is incorrect"})
             results["validation_successful"] = False
             
-        # Check 5: Native titlebar fix
+        # Check 6: Native titlebar fix
         titlebar_pattern = r'sed -i.*l\.frame=!1.*native.*titlebar'
         if re.search(titlebar_pattern, content, re.IGNORECASE | re.DOTALL):
             results["checks"].append({"check": "titlebar_fix", "status": "pass", "message": "Native titlebar fix is present"})
@@ -75,21 +85,21 @@ def validate_pkgbuild():
             results["checks"].append({"check": "titlebar_fix", "status": "fail", "message": "Native titlebar fix is missing"})
             results["validation_successful"] = False
             
-        # Check 6: .deb format (not AppImage)
+        # Check 7: .deb format (not AppImage)
         if ".deb" in content and "AppImage" not in content:
             results["checks"].append({"check": "deb_format", "status": "pass", "message": "Using .deb format (not AppImage)"})
         else:
             results["checks"].append({"check": "deb_format", "status": "fail", "message": "Not using .deb format or still references AppImage"})
             results["validation_successful"] = False
             
-        # Check 7: bsdtar extraction (for .deb)
+        # Check 8: bsdtar extraction (for .deb)
         if "bsdtar -xf data.tar.xz" in content:
             results["checks"].append({"check": "extraction", "status": "pass", "message": "Using bsdtar for .deb extraction"})
         else:
             results["checks"].append({"check": "extraction", "status": "fail", "message": "Not using bsdtar for .deb extraction"})
             results["validation_successful"] = False
             
-        # Check 8: Binary symlink
+        # Check 9: Binary symlink
         if 'ln -sf /usr/share/cursor/cursor "$pkgdir"/usr/bin/cursor' in content:
             results["checks"].append({"check": "binary_link", "status": "pass", "message": "Binary symlink is correct"})
         else:
