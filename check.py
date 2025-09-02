@@ -148,8 +148,8 @@ try:
     # Check if update is needed based on commit hash or version
     if commit_based_updates:
         # Primary update detection: commit hash changes OR manual release bump
-        # Compare against AUR commit, not local commit, to determine if AUR needs updating
-        commit_update_needed = latest_commit and latest_commit != aur_commit
+        # Compare against local commit to determine if local repo needs updating
+        commit_update_needed = latest_commit and latest_commit != local_commit
         update_needed = commit_update_needed or is_manual_rel_update
         print(f"::debug::Commit-based update detection: {update_needed}")
         print(f"::debug::Commit update needed: {commit_update_needed}")
@@ -170,7 +170,7 @@ try:
                 and latest_version != local_version
             )
 
-        commit_update_needed = latest_commit and latest_commit != aur_commit
+        commit_update_needed = latest_commit and latest_commit != local_commit
         update_needed = version_update_needed or commit_update_needed or is_manual_rel_update
         print(f"::debug::Version-based update detection: {update_needed}")
 
