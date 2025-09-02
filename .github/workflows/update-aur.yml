@@ -97,7 +97,15 @@ jobs:
           # Add PKGBUILD
           git add PKGBUILD
           git commit -m "Update PKGBUILD to version ${{ fromJson(steps.check.outputs.check_output).new_version }} (commit ${{ fromJson(steps.check.outputs.check_output).new_commit }})" || echo "No changes to commit"
-          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }}
+          
+          # Only push if not in DEBUG mode
+          if [[ "${{ env.DEBUG }}" != "true" ]]; then
+            echo "Pushing changes to remote repository..."
+            git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }}
+          else
+            echo "DEBUG mode: Skipping git push"
+            echo "Local commit created successfully"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
