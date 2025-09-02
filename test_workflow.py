@@ -365,14 +365,14 @@ class WorkflowTester:
         # Look for expected updates
         checks = []
         
-        # Should be back to 1.5.9
-        if "pkgver=1.5.9" in content:
-            checks.append("✅ Version updated to 1.5.9")
+        # Should be back to current version
+        if f"pkgver={self.current_version}" in content:
+            checks.append(f"✅ Version updated to {self.current_version}")
         else:
-            checks.append("❌ Version not updated correctly")
+            checks.append(f"❌ Version not updated correctly (expected {self.current_version})")
             
         # Should have correct commit
-        if "de327274300c6f38ec9f4240d11e82c3b0660b29" in content:
+        if self.current_commit in content:
             checks.append("✅ Commit hash updated")
         else:
             checks.append("❌ Commit hash not updated")
@@ -388,7 +388,7 @@ class WorkflowTester:
                               capture_output=True, text=True)
         if result.returncode == 0:
             last_commit = result.stdout.strip()
-            if "1.5.9" in last_commit:
+            if self.current_version in last_commit:
                 checks.append("✅ Git commit created")
             else:
                 checks.append(f"❌ Unexpected git commit: {last_commit}")
