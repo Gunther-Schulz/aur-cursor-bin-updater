@@ -140,6 +140,13 @@ jobs:
           allow_empty_commits: false
           ssh_keyscan_types: rsa,ecdsa,ed25519
 
+      - name: Validate PKGBUILD (for testing)
+        if: env.DEBUG == 'true'
+        run: |
+          echo "::group::PKGBUILD Validation"
+          python validate_pkgbuild.py
+          echo "::endgroup::"
+
       - name: Summary
         run: |
           echo "::group::Workflow Summary"
