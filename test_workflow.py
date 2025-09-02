@@ -465,6 +465,24 @@ class WorkflowTester:
             # Add workflow-specific checks
             self.log("✅ Workflow executed in DEBUG mode (no git push)")
             
+            # Display validation summary
+            summary = validation_data.get("summary", {})
+            if summary:
+                self.log("=" * 60)
+                self.log("📊 VALIDATION SUMMARY:")
+                self.log(f"   Total checks: {summary.get('total_checks', 0)}")
+                self.log(f"   Passed: {summary.get('passed_checks', 0)}")
+                self.log(f"   Failed: {summary.get('failed_checks', 0)}")
+                self.log(f"   Pass rate: {summary.get('pass_rate', '0%')}")
+                
+                failed_checks = summary.get("failed_check_names", [])
+                if failed_checks:
+                    self.log(f"   Failed checks: {', '.join(failed_checks)}")
+                
+                overall_status = "✅ PASSED" if all_passed else "❌ FAILED"
+                self.log(f"   Overall result: {overall_status}")
+                self.log("=" * 60)
+            
             return all_passed
             
         else:
@@ -497,12 +515,19 @@ class WorkflowTester:
                 return False
                 
             # Validate results
-            if not self.validate_results():
-                self.log("❌ Result validation failed", "ERROR")
+            validation_success = self.validate_results()
+            
+            if validation_success:
+                self.log("🎉 ALL WORKFLOW TESTS PASSED!")
+                self.log("   ✅ Workflow execution successful")
+                self.log("   ✅ PKGBUILD validation passed")
+                self.log("   ✅ All checks completed successfully")
+                return True
+            else:
+                self.log("❌ WORKFLOW TESTS FAILED!", "ERROR")
+                self.log("   ❌ One or more validation checks failed", "ERROR")
+                self.log("   ❌ See summary above for details", "ERROR")
                 return False
-                
-            self.log("🎉 All tests passed!")
-            return True
             
         except KeyboardInterrupt:
             self.log("❌ Test interrupted by user", "ERROR")
