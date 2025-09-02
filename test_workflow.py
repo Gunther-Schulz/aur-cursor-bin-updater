@@ -366,50 +366,7 @@ class WorkflowTester:
             self.log(f"❌ Error running workflow: {e}", "ERROR")
             return False
             
-    def get_container_pkgbuild(self):
-        """Extract PKGBUILD content from the most recent act container"""
-        self.log("Extracting PKGBUILD from workflow container...")
-        
-        try:
-            # Get the most recent act container
-            result = subprocess.run([
-                "docker", "ps", "-a", "--filter", "name=act-Update-AUR-Package", 
-                "--format", "{{.Names}}", "--latest"
-            ], capture_output=True, text=True)
-            
-            if result.returncode != 0 or not result.stdout.strip():
-                # Try alternative approach - look for any recent containers
-                result = subprocess.run([
-                    "docker", "ps", "-a", "--filter", "label=act", 
-                    "--format", "{{.Names}}", "--latest"
-                ], capture_output=True, text=True)
-                
-            if result.returncode != 0 or not result.stdout.strip():
-                self.log("❌ Could not find act container")
-                return None
-                
-            container_name = result.stdout.strip().split('\n')[0]
-            self.log(f"Found container: {container_name}")
-            
-            # Try to extract PKGBUILD from container
-            result = subprocess.run([
-                "docker", "cp", f"{container_name}:/home/g/dev/Gunther-Schulz/aur-cursor-bin-updater/PKGBUILD", 
-                "/tmp/container_PKGBUILD"
-            ], capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                with open("/tmp/container_PKGBUILD", "r") as f:
-                    content = f.read()
-                self.log("✅ Successfully extracted PKGBUILD from container")
-                return content
-            else:
-                self.log(f"❌ Could not extract PKGBUILD from container: {result.stderr}")
-                return None
-                
-        except Exception as e:
-            self.log(f"❌ Error accessing container: {e}")
-            return None
-            
+
     def cleanup_containers(self):
         """Clean up act containers after validation"""
         self.log("Cleaning up test containers...")
@@ -453,13 +410,15 @@ class WorkflowTester:
             
             if match:
                 validation_json = match.group(1).strip()
-                # Remove any log prefixes (like "| " from act output)
+                # Remove any log prefixes (like "[Update AUR Package/check-and-update]   | " from act output)
                 lines = validation_json.split('\n')
                 cleaned_lines = []
                 for line in lines:
-                    # Remove act log prefixes
-                    cleaned_line = re.sub(r'^\|\s*', '', line)
-                    cleaned_lines.append(cleaned_line)
+                    # Remove act log prefixes - more comprehensive regex
+                    cleaned_line = re.sub(r'^\[.*?\]\s*\|\s*', '', line)  # Remove [job] | prefix
+                    cleaned_line = re.sub(r'^\|\s*', '', cleaned_line)     # Remove standalone | prefix
+                    if cleaned_line.strip():  # Only keep non-empty lines
+                        cleaned_lines.append(cleaned_line)
                 cleaned_json = '\n'.join(cleaned_lines)
                 
                 try:
@@ -468,7 +427,11 @@ class WorkflowTester:
                     return validation_data
                 except json.JSONDecodeError as e:
                     self.log(f"❌ Failed to parse validation JSON: {e}")
-                    self.log(f"Raw JSON: {cleaned_json[:200]}...")
+                    self.log(f"Raw JSON (first 300 chars): {cleaned_json[:300]}...")
+                    # Show the problematic lines for debugging
+                    self.log("Cleaned lines:")
+                    for i, line in enumerate(cleaned_lines[:10]):
+                        self.log(f"  {i}: '{line}'")
                     return None
             else:
                 self.log("❌ No validation results found in workflow output")
@@ -482,7 +445,7 @@ class WorkflowTester:
         """Validate that the workflow updated things correctly"""
         self.log("Validating workflow results...")
         
-        # First try to parse validation results from workflow output
+        # Parse validation results from workflow output (container validation)
         validation_data = self.parse_validation_results()
         
         if validation_data:
@@ -505,45 +468,9 @@ class WorkflowTester:
             return all_passed
             
         else:
-            self.log("Falling back to local validation...")
-            
-            # Fallback to local PKGBUILD validation
-            try:
-                with open("PKGBUILD", "r") as f:
-                    content = f.read()
-            except Exception as e:
-                self.log(f"❌ Could not read local PKGBUILD: {e}")
-                return False
-                
-            # Basic local checks
-            checks = []
-            
-            # Check if it's still the test version (workflow didn't run properly)
-            if f"pkgver={self.test_version}" in content:
-                checks.append("❌ PKGBUILD still has test version - workflow may not have run")
-            elif f"pkgver={self.current_version}" in content:
-                checks.append("✅ Version appears correct (local)")
-            else:
-                checks.append("❌ Version is unexpected (local)")
-                
-            # Check git log
-            result = subprocess.run(["git", "log", "--oneline", "-1"], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0:
-                last_commit = result.stdout.strip()
-                if "test script" in last_commit.lower() or "workflow test" in last_commit.lower():
-                    checks.append("✅ Git commit created (test-related)")
-                else:
-                    checks.append(f"❌ Unexpected git commit: {last_commit}")
-            else:
-                checks.append("❌ Could not check git log")
-                
-            # Print all checks
-            for check in checks:
-                self.log(check)
-                
-            # Return True if all checks passed
-            return all("✅" in check for check in checks)
+            self.log("❌ Container validation failed - no validation results found in workflow output", "ERROR")
+            self.log("This means the validate_pkgbuild.py script didn't run or didn't produce output", "ERROR")
+            return False
         
     def run_test(self):
         """Run the complete test"""
