@@ -21,10 +21,13 @@ def base64_to_hex(base64_string):
 
 
 def get_electron_version(vscode_version):
-    """Get the Electron version from VSCode's package-lock.json."""
-    debug_print(f"Starting get_electron_version for VSCode {vscode_version}")
-    url = f"https://raw.githubusercontent.com/microsoft/vscode/refs/tags/{vscode_version}/package-lock.json"
-    debug_print(f"URL: {url}")
+    """Get the Electron version from VSCode's package-lock.json using the correct method from PR #16."""
+    debug_print(f"Starting get_electron_version for VSCode {vscode_version} using tarball method")
+    
+    # Use VSCode tarball method (the correct approach from PR #16)
+    tarball_url = f"https://github.com/microsoft/vscode/archive/refs/tags/{vscode_version}.tar.gz"
+    debug_print(f"Tarball URL: {tarball_url}")
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
         " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -33,66 +36,88 @@ def get_electron_version(vscode_version):
     max_retries = 3
     for attempt in range(max_retries + 1):
         try:
-            debug_print(f"Fetching Electron version for VSCode {vscode_version} (attempt {attempt + 1})")
-            response = requests.get(url, headers=headers)
+            debug_print(f"Downloading VSCode tarball for version {vscode_version} (attempt {attempt + 1})")
+            response = requests.get(tarball_url, headers=headers, timeout=60)
             debug_print(f"Response status: {response.status_code}")
             response.raise_for_status()
-            debug_print("Response successful, parsing JSON...")
+            debug_print("Tarball download successful")
 
-            # Parse the package-lock.json to find electron version
-            data = response.json()
-            debug_print("JSON parsed successfully")
-            debug_print(f"JSON keys: {list(data.keys())}")
+            # Extract package-lock.json from tarball
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Save tarball to temporary file
+                with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as tarball_file:
+                    tarball_file.write(response.content)
+                    tarball_path = tarball_file.name
+                
+                try:
+                    # Extract package-lock.json from tarball
+                    debug_print("Extracting package-lock.json from tarball...")
+                    result = subprocess.run([
+                        'tar', '-xzf', tarball_path, f'vscode-{vscode_version}/package-lock.json'
+                    ], cwd=temp_dir, capture_output=True, text=True, timeout=60)
+                    
+                    debug_print(f"tar extraction result: {result.returncode}")
+                    if result.returncode == 0:
+                        package_lock_path = os.path.join(temp_dir, f'vscode-{vscode_version}/package-lock.json')
+                        if os.path.exists(package_lock_path):
+                            debug_print("package-lock.json extracted successfully, parsing...")
+                            with open(package_lock_path, 'r') as f:
+                                data = json.load(f)
+                            
+                            debug_print("JSON parsed successfully")
+                            debug_print(f"JSON keys: {list(data.keys())}")
 
-            # Try different possible locations for electron version
-            electron_version = None
+                            # Try different possible locations for electron version (including devDependencies!)
+                            electron_version = None
 
-            # Method 1: Check root dependencies (old format)
-            debug_print("Checking Method 1: root dependencies...")
-            if 'dependencies' in data and 'electron' in data['dependencies']:
-                electron_version = data['dependencies']['electron']['version']
-                debug_print(f"Found electron in root dependencies: {electron_version}")
-            else:
-                debug_print("Method 1 failed: no root dependencies or electron not found")
+                            # Method 1: Check root dependencies
+                            debug_print("Checking Method 1: root dependencies...")
+                            if 'dependencies' in data and 'electron' in data['dependencies']:
+                                electron_version = data['dependencies']['electron']['version']
+                                debug_print(f"Found electron in root dependencies: {electron_version}")
 
-            # Method 2: Check packages structure (new format)
-            debug_print("Checking Method 2: packages root dependencies...")
-            if 'packages' in data and '' in data['packages']:
-                root_package = data['packages']['']
-                if 'dependencies' in root_package and 'electron' in root_package['dependencies']:
-                    electron_version = root_package['dependencies']['electron']
-                    debug_print(f"Found electron in packages root dependencies: {electron_version}")
-                else:
-                    debug_print("Method 2 failed: no root package dependencies or electron not found")
-            else:
-                debug_print("Method 2 failed: no packages or no root package")
+                            # Method 2: Check packages structure dependencies
+                            elif 'packages' in data and '' in data['packages']:
+                                root_package = data['packages']['']
+                                debug_print("Checking Method 2: packages root dependencies...")
+                                if 'dependencies' in root_package and 'electron' in root_package['dependencies']:
+                                    electron_version = root_package['dependencies']['electron']
+                                    debug_print(f"Found electron in packages root dependencies: {electron_version}")
+                                # Method 2b: Check devDependencies (THE MISSING PIECE from PR #16!)
+                                elif 'devDependencies' in root_package and 'electron' in root_package['devDependencies']:
+                                    electron_version = root_package['devDependencies']['electron']
+                                    debug_print(f"Found electron in packages root devDependencies: {electron_version}")
+                                else:
+                                    debug_print("Method 2 failed: no root package dependencies/devDependencies or electron not found")
 
-            # Method 3: Search in all packages
-            if 'packages' in data:
-                debug_print(f"Checking packages structure...")
-                debug_print(f"Number of packages: {len(data['packages'])}")
-                debug_print(f"Available packages (first 10): {list(data['packages'].keys())[:10]}...")
-                if 'node_modules/electron' in data['packages']:
-                    electron_version = data['packages']['node_modules/electron']['version']
-                    debug_print(f"Found electron in packages: {electron_version}")
-                else:
-                    debug_print("node_modules/electron not found in packages")
-                    # Search for any electron-related packages
-                    electron_packages = [k for k in data['packages'].keys() if 'electron' in k.lower()]
-                    debug_print(f"Electron-related packages found: {electron_packages[:5]}")
-                    # Check if electron exists with different key format
-                    all_keys = list(data['packages'].keys())
-                    electron_keys = [k for k in all_keys if 'electron' in k]
-                    debug_print(f"All electron keys: {electron_keys}")
+                            # Method 3: Check node_modules/electron
+                            elif 'packages' in data and 'node_modules/electron' in data['packages']:
+                                electron_version = data['packages']['node_modules/electron']['version']
+                                debug_print(f"Found electron in node_modules: {electron_version}")
 
-            if electron_version:
-                # Extract major version number
-                major_version = electron_version.split('.')[0]
-                return f"electron{major_version}"
-            else:
-                raise ValueError("Electron dependency not found in package-lock.json")
+                            if electron_version:
+                                # Extract major version number
+                                major_version = electron_version.split('.')[0]
+                                debug_print(f"Extracted major version: {major_version}")
+                                return f"electron{major_version}"
+                            else:
+                                # Debug: show what's available
+                                if 'packages' in data and '' in data['packages']:
+                                    root_package = data['packages']['']
+                                    debug_print(f"Available root package keys: {list(root_package.keys())}")
+                                    if 'devDependencies' in root_package:
+                                        debug_print(f"devDependencies keys: {list(root_package['devDependencies'].keys())}")
+                                raise ValueError("Electron dependency not found in package-lock.json")
+                        else:
+                            debug_print(f"package-lock.json not found at: {package_lock_path}")
+                            raise ValueError("package-lock.json not extracted from tarball")
+                    else:
+                        debug_print(f"tar extraction failed: {result.stderr}")
+                        raise ValueError("Could not extract package-lock.json from VSCode tarball")
+                finally:
+                    os.unlink(tarball_path)
 
-        except (requests.exceptions.RequestException, json.JSONDecodeError, ValueError) as e:
+        except (requests.exceptions.RequestException, json.JSONDecodeError, ValueError, subprocess.TimeoutExpired) as e:
             debug_print(f"Failed to get Electron version (attempt {attempt + 1}): {str(e)}")
             if attempt < max_retries:
                 debug_print("Retrying in 2 seconds...")
