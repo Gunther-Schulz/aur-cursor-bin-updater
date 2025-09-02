@@ -11,7 +11,7 @@ license=('LicenseRef-Cursor_EULA')
 depends=('ripgrep' 'xdg-utils'
   'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
 options=(!strip) # Don't break ext of VSCode
-_appimage="${pkgname}-${pkgver}.AppImage"
+# _appimage variable no longer needed for .deb format
 _commit=de327274300c6f38ec9f4240d11e82c3b0660b29 # sed'ded at GitHub WF
 source=("https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb"
 https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.sh)
@@ -26,8 +26,8 @@ package() {
   ln -svf /usr/bin/rg ${_app}/node_modules/@vscode/ripgrep/bin/rg
   ln -svf /usr/bin/xdg-open ${_app}/node_modules/open/xdg-open
 
-  # sed-ded at GitHub WF to electronNM
-  _electron=electron
+  # Electron version determined during build process
+  _electron=electron34
   echo $_electron
   depends+=($_electron)
   mv usr "${pkgdir}"/usr
