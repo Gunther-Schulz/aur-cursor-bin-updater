@@ -8,7 +8,7 @@ arch=('x86_64')
 url="https://www.cursor.com"
 license=('LicenseRef-Cursor_EULA')
 _electron=electron34
-depends=('ripgrep' 'xdg-utils' $_electron
+depends=('xdg-utils' $_electron
   'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
 options=(!strip) # Don't break ext of VSCode
 _commit=6af2d906e8ca91654dd7c4224a73ef17900ad735 # sed'ded at GitHub WF
@@ -23,7 +23,6 @@ package() {
   tar -xf data.tar.xz -C "$pkgdir" --exclude 'usr/share/cursor/[^r]*' --exclude 'usr/share/cursor/*.pak'
   cd "$pkgdir"
   mv usr/share/zsh/{vendor-completions,site-functions}
-  ln -svf /usr/bin/rg ${_app}/node_modules/@vscode/ripgrep/bin/rg
   ln -svf /usr/bin/xdg-open ${_app}/node_modules/open/xdg-open
 
   sed -e "s|code-flags|cursor-flags|" -e "s|/usr/lib/code|/${_app}|" -e "s|/usr/lib/code/code.mjs|--app=/${_app}|" \
