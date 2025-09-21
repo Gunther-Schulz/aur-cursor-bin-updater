@@ -12,18 +12,20 @@ from packaging import version
 
 
 def get_latest_commit_and_version():
-    """Get the latest commit hash and version from Cursor's API."""
-    cursor_url = "https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable"
+    """Get the latest commit hash and version from Cursor's update API, construct deb download URL."""
+    api_url = "https://api2.cursor.sh/updates/api/update/linux-x64/cursor/1.0.0/hash/prerelease"
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
         " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Cache-Control": "no-cache",
     }
 
     max_retries = 2
     for attempt in range(max_retries + 1):
         try:
-            print("::debug::Making request to:", cursor_url)
-            response = requests.get(cursor_url, headers=headers)
+            print("::debug::Making request to:", api_url)
+            response = requests.get(api_url, headers=headers)
             print(f"::debug::API status code: {response.status_code}")
             print(f"::debug::API raw response: {response.text}")
 
@@ -32,11 +34,19 @@ def get_latest_commit_and_version():
                 print("::debug::API response:", json.dumps(data, indent=2))
                 response.raise_for_status()
 
-                download_url = data["downloadUrl"]
                 version = data["version"]
-                commit = data["commitSha"]
+                update_url = data["url"]
+                # Parse commitSha from the update_url path (e.g., /production/{commit}/linux/x64/Cursor-{version}-x86_64.AppImage.zsync)
+                commit_match = re.search(r'/production/([a-f0-9]{40})/', update_url)
+                if not commit_match:
+                    raise ValueError("Failed to extract commit from update URL")
+                commit = commit_match.group(1)
+
+                # Construct full deb download URL
+                download_url = f"https://downloads.cursor.com/production/{commit}/linux/x64/deb/amd64/deb/cursor_{version}_amd64.deb"
 
                 print(f"::debug::Extracted version: {version}, commit: {commit}")
+                print(f"::debug::Constructed download URL: {download_url}")
                 return commit, version, download_url
 
             else:
@@ -47,10 +57,8 @@ def get_latest_commit_and_version():
 
         except requests.exceptions.RequestException as e:
             print(f"::warning::Request failed: {str(e)}")
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
             print(f"::warning::Failed to parse JSON or extract data: {str(e)}")
-        except ValueError as e:
-            print(f"::warning::{str(e)}")
 
         if attempt < max_retries:
             print("::debug::Retrying in 5 seconds...")
