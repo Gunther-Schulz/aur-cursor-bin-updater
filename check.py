@@ -13,7 +13,7 @@ from packaging import version
 
 def get_latest_commit_and_version():
     """Get the latest commit hash and version from Cursor's update API, construct deb download URL."""
-    api_url = "https://api2.cursor.sh/updates/api/update/linux-x64/cursor/1.0.0/hash/prerelease"
+    api_url = "https://api2.cursor.sh/updates/api/update/linux-x64/cursor/1.0.0/hash/stable"
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
         " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
