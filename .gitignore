@@ -4,5 +4,5 @@ check_output.json
 src
 pkg
 *.zst
+*.deb
 *.AppImage
- 
