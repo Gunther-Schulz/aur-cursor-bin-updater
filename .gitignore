@@ -6,3 +6,4 @@ pkg
 *.zst
 *.deb
 *.AppImage
+code.sh
