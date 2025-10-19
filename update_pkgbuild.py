@@ -270,12 +270,15 @@ def update_pkgbuild(pkgbuild_lines, json_data):
         elif line.startswith("https://gitlab.archlinux.org"):
             # This is the second source line (code.sh)
             updated_lines.append(line)
+        elif line.startswith("rg.sh"):
+            # This is the third source line (rg.sh)
+            updated_lines.append(line)
         elif line.startswith("sha512sums="):
             updated_lines.append(f"sha512sums=('{deb_sha512}'\n")
             in_sha = True
         elif in_sha and line.strip().endswith(")"):
-            # This is the last line of sha512sums, add the second checksum
-            updated_lines.append(f"            '937299c6cb6be2f8d25f7dbc95cf77423875c5f8353b8bd6cd7cc8e5603cbf8405b14dbf8bd615db2e3b36ed680fc8e1909410815f7f8587b7267a699e00ab37')\n")
+            # This is the last line of sha512sums, add the second and third checksums
+            updated_lines.append(f"            '937299c6cb6be2f8d25f7dbc95cf77423875c5f8353b8bd6cd7cc8e5603cbf8405b14dbf8bd615db2e3b36ed680fc8e1909410815f7f8587b7267a699e00ab37' 'SKIP')\n")
             in_sha = False
         elif line.startswith("  # Electron version determined during build process"):
             # Keep the comment
