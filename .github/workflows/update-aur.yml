@@ -139,6 +139,7 @@ jobs:
           commit_message: "Update to version ${{ fromJson(steps.check.outputs.check_output).new_version }} (commit ${{ fromJson(steps.check.outputs.check_output).new_commit }})"
           allow_empty_commits: false
           ssh_keyscan_types: rsa,ecdsa,ed25519
+          assets: rg.sh
 
       - name: Validate PKGBUILD (for testing)
         if: env.DEBUG == 'true'
