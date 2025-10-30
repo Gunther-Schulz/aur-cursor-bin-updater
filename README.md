@@ -144,13 +144,6 @@ The system automatically detects the correct Electron version by:
 3. Parsing `package-lock.json` for Electron dependencies
 4. Updating PKGBUILD with correct `electronXX` package
 
-### Native Titlebar Fix
-
-Automatically applies the community-requested native titlebar fix:
-```bash
-sed -i 's|l\.frame=!1|(!On(o, i?.forceNativeTitlebar ? "native" : void 0) \&\& (l.frame = !1))|g' main.js
-```
-
 ### Debug Mode
 
 Enable verbose logging for troubleshooting:
