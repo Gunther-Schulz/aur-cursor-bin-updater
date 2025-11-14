@@ -12,79 +12,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set DEBUG environment variable
+      - name: Generate PKGBUILD
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/development" ]]; then
-            echo "DEBUG=true" >> $GITHUB_ENV
-          else
-            echo "DEBUG=false" >> $GITHUB_ENV
-          fi
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install dependencies
-        run: |
-          echo "::group::Installing Python dependencies"
-          python -m pip install --upgrade pip
-          pip install requests packaging pyyaml
-          echo "::endgroup::"
-
-          echo "::group::Installing system dependencies"
-          sudo apt-get update
-          sudo apt-get install -y libarchive-tools
-          echo "::endgroup::"
-
-      - name: Check for updates
-        id: check
-        run: |
-          echo "::group::Checking for updates"
-          python check.py
-          echo "check_output=$(cat check_output.json | jq -c .)" >> $GITHUB_OUTPUT
-          echo "::endgroup::"
-
-      - name: Debug Output
-        run: |
-          echo "Check output: ${{ steps.check.outputs.check_output }}"
-          echo "DEBUG: $DEBUG"
-
-      - name: Check if update is needed
-        id: update_needed
-        run: |
-          if [ "${{ fromJson(steps.check.outputs.check_output).update_needed }}" != "true" ]; then
-            echo "No update needed. Stopping workflow."
-            echo "update_needed=false" >> $GITHUB_OUTPUT
-          else
-            echo "update_needed=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Notify if no update needed
-        if: steps.update_needed.outputs.update_needed == 'false'
-        run: echo "No update needed."
-
-      - name: Update PKGBUILD
-        if: steps.update_needed.outputs.update_needed == 'true'
-        env:
-          DEBUG: ${{ env.DEBUG }}
-        run: |
-          echo "::group::Updating PKGBUILD"
-          python update_pkgbuild.py check_output.json
-          echo "::endgroup::"
-          echo "Final PKGBUILD content:"
+          sudo apt-get install libarchive-tools
+          URL=https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable
+          pkgver=$(curl $URL | jq .version | tr -d \")
+          _commit=$(curl $URL | jq .commitSha | tr -d \" )
+          curl https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb -o /tmp/a.tar.xz
+          _sha=$(sha512sum /tmp/a.tar.xz | cut -d ' ' -f 1)
+          code=$(bsdtar xOf /tmp/a.tar.xz data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json|jq .vscodeVersion | tr -d \")
+          _electron=electron$(curl -L https://github.com/microsoft/vscode/raw/refs/tags/${code}/package-lock.json|jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
+          _node=20
+          sed PKGBUILD.sed \
+            -e "s/^pkgver=.*/pkgver=${pkgver}/" \
+            -e "s/^_commit=.*/_commit=${_commit}/" \
+            -e "s/^sha512sum\[0\]=.*/sha512sum\[0\]=${_sha}/" \
+            -e "s/^_electron=.*/_electron=${_electron}/" \
+          > PKGBUILD
           cat PKGBUILD
-
-          echo "::group::Verifying Electron version"
-          if grep -q "_electron=" PKGBUILD; then
-            echo "✓ Electron version found in PKGBUILD:"
-            grep -A 2 -B 2 "_electron=" PKGBUILD
-          else
-            echo "❌ ERROR: Electron version line missing from PKGBUILD!"
-            echo "This will cause the package build to fail."
-            exit 1
-          fi
-          echo "::endgroup::"
+          false #todo: stop CI by diff command's exit code if update is not needed.
 
       - name: Commit changes
         if: steps.update_needed.outputs.update_needed == 'true'
