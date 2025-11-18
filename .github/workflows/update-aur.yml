@@ -12,28 +12,105 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate PKGBUILD
+      - name: Install dependencies
         run: |
-          sudo apt-get install libarchive-tools
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools jq curl
+
+      - name: Check for updates and generate PKGBUILD
+        id: check
+        run: |
+          echo "::group::Checking for updates"
           URL=https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable
-          pkgver=$(curl $URL | jq .version | tr -d \")
-          _commit=$(curl $URL | jq .commitSha | tr -d \" )
-          curl https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb -o /tmp/a.tar.xz
-          _sha=$(sha512sum /tmp/a.tar.xz | cut -d ' ' -f 1)
-          code=$(bsdtar xOf /tmp/a.tar.xz data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json|jq .vscodeVersion | tr -d \")
-          _electron=electron$(curl -L https://github.com/microsoft/vscode/raw/refs/tags/${code}/package-lock.json|jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
-          _node=20
-          sed PKGBUILD.sed \
-            -e "s/^pkgver=.*/pkgver=${pkgver}/" \
-            -e "s/^_commit=.*/_commit=${_commit}/" \
-            -e "s/^sha512sum\[0\]=.*/sha512sum\[0\]=${_sha}/" \
-            -e "s/^_electron=.*/_electron=${_electron}/" \
-          > PKGBUILD
+          
+          # Get latest version info
+          new_pkgver=$(curl -s $URL | jq -r .version)
+          new_commit=$(curl -s $URL | jq -r .commitSha)
+          
+          # Get current version from PKGBUILD
+          if [ -f PKGBUILD ]; then
+            current_pkgver=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
+            current_commit=$(grep -E '^_commit=' PKGBUILD | cut -d'=' -f2 | sed 's/ #.*//')
+          else
+            current_pkgver=""
+            current_commit=""
+          fi
+          
+          echo "Current version: ${current_pkgver:-none}"
+          echo "Current commit: ${current_commit:-none}"
+          echo "New version: ${new_pkgver}"
+          echo "New commit: ${new_commit}"
+          
+          # Check if update is needed
+          if [ "$current_pkgver" = "$new_pkgver" ] && [ "$current_commit" = "$new_commit" ]; then
+            echo "No update needed. Current version matches latest."
+            echo "update_needed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Update needed!"
+          echo "update_needed=true" >> $GITHUB_OUTPUT
+          echo "new_version=${new_pkgver}" >> $GITHUB_OUTPUT
+          echo "new_commit=${new_commit}" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+          
+          echo "::group::Generating PKGBUILD"
+          # Download .deb file
+          curl -s https://downloads.cursor.com/production/${new_commit}/linux/x64/deb/amd64/deb/cursor_${new_pkgver}_amd64.deb -o /tmp/cursor.deb
+          
+          # Calculate SHA512
+          new_sha=$(sha512sum /tmp/cursor.deb | cut -d ' ' -f 1)
+          
+          # Extract VSCode version from product.json
+          code_version=$(bsdtar xOf /tmp/cursor.deb data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json 2>/dev/null | jq -r .vscodeVersion)
+          
+          # Get Electron version from VSCode's package-lock.json
+          _electron=electron$(curl -sL https://github.com/microsoft/vscode/raw/refs/tags/${code_version}/package-lock.json | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
+          
+          echo "VSCode version: ${code_version}"
+          echo "Electron: ${_electron}"
+          
+          # Generate PKGBUILD from template
+          # Use awk for sha512sum replacement as sed has issues with brackets
+          awk -v pkgver="${new_pkgver}" \
+              -v commit="${new_commit}" \
+              -v sha="${new_sha}" \
+              -v electron="${_electron}" \
+              'BEGIN {OFS=""} 
+               /^pkgver=/ {print "pkgver=" pkgver; next}
+               /^_commit=/ {print "_commit=" commit " # sed'\''ded at GitHub WF"; next}
+               /^sha512sums\[0\]=/ {print "sha512sums[0]=" sha; next}
+               /^_electron=/ {print "_electron=" electron; next}
+               {print}' PKGBUILD.sed > PKGBUILD
+          
+          # Basic validation
+          if ! grep -q "^pkgver=${new_pkgver}$" PKGBUILD; then
+            echo "ERROR: pkgver not set correctly"
+            exit 1
+          fi
+          if ! grep -q "^_commit=${new_commit}" PKGBUILD; then
+            echo "ERROR: _commit not set correctly"
+            exit 1
+          fi
+          if ! grep -q "^_electron=${_electron}$" PKGBUILD; then
+            echo "ERROR: _electron not set correctly"
+            exit 1
+          fi
+          if ! grep -q "^sha512sums\[0\]=${new_sha}$" PKGBUILD; then
+            echo "ERROR: sha512sum not set correctly"
+            exit 1
+          fi
+          
+          echo "✓ PKGBUILD generated and validated"
           cat PKGBUILD
-          false #todo: stop CI by diff command's exit code if update is not needed.
+          echo "::endgroup::"
+
+      - name: Notify if no update needed
+        if: steps.check.outputs.update_needed == 'false'
+        run: echo "No update needed. Stopping workflow."
 
       - name: Commit changes
-        if: steps.update_needed.outputs.update_needed == 'true'
+        if: steps.check.outputs.update_needed == 'true'
         run: |
           # Clean up untracked files
           git clean -fd
@@ -42,21 +119,16 @@ jobs:
           git config --local user.name "github-actions[bot]"
           # Add PKGBUILD
           git add PKGBUILD
-          git commit -m "Update PKGBUILD to version ${{ fromJson(steps.check.outputs.check_output).new_version }} (commit ${{ fromJson(steps.check.outputs.check_output).new_commit }})" || echo "No changes to commit"
+          git commit -m "Update PKGBUILD to version ${{ steps.check.outputs.new_version }} (commit ${{ steps.check.outputs.new_commit }})" || echo "No changes to commit"
           
-          # Only push if not in DEBUG mode
-          if [[ "${{ env.DEBUG }}" != "true" ]]; then
-            echo "Pushing changes to remote repository..."
-            git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }}
-          else
-            echo "DEBUG mode: Skipping git push"
-            echo "Local commit created successfully"
-          fi
+          # Push changes to repository
+          echo "Pushing changes to remote repository..."
+          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check branch and continue or stop workflow
-        if: steps.update_needed.outputs.update_needed == 'true'
+        if: steps.check.outputs.update_needed == 'true'
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/development" ]]; then
             echo "On development branch, stopping workflow"
@@ -66,7 +138,7 @@ jobs:
           fi
 
       - name: Install SSH Key
-        if: steps.update_needed.outputs.update_needed == 'true' && github.ref != 'refs/heads/development'
+        if: steps.check.outputs.update_needed == 'true' && github.ref != 'refs/heads/development'
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
@@ -74,7 +146,7 @@ jobs:
           if_key_exists: replace
 
       - name: Publish AUR package
-        if: steps.update_needed.outputs.update_needed == 'true' && github.ref != 'refs/heads/development'
+        if: steps.check.outputs.update_needed == 'true' && github.ref != 'refs/heads/development'
         uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
         with:
           pkgname: cursor-bin
@@ -82,23 +154,20 @@ jobs:
           commit_username: ${{ secrets.AUR_USERNAME }}
           commit_email: ${{ secrets.AUR_EMAIL }}
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          commit_message: "Update to version ${{ fromJson(steps.check.outputs.check_output).new_version }} (commit ${{ fromJson(steps.check.outputs.check_output).new_commit }})"
+          commit_message: "Update to version ${{ steps.check.outputs.new_version }} (commit ${{ steps.check.outputs.new_commit }})"
           allow_empty_commits: false
           ssh_keyscan_types: rsa,ecdsa,ed25519
           assets: rg.sh
 
-      - name: Validate PKGBUILD (for testing)
-        if: env.DEBUG == 'true'
-        run: |
-          echo "::group::PKGBUILD Validation"
-          python validate_pkgbuild.py
-          echo "::endgroup::"
-
       - name: Summary
         run: |
           echo "::group::Workflow Summary"
-          echo "Update needed: ${{ fromJson(steps.check.outputs.check_output).update_needed }}"
-          echo "New version: ${{ fromJson(steps.check.outputs.check_output).new_version }}"
-          echo "New commit: ${{ fromJson(steps.check.outputs.check_output).new_commit }}"
-          echo "PKGBUILD updated and published to AUR"
+          echo "Update needed: ${{ steps.check.outputs.update_needed }}"
+          echo "New version: ${{ steps.check.outputs.new_version }}"
+          echo "New commit: ${{ steps.check.outputs.new_commit }}"
+          if [ "${{ steps.check.outputs.update_needed }}" = "true" ]; then
+            echo "PKGBUILD updated and published to AUR"
+          else
+            echo "No update needed"
+          fi
           echo "::endgroup::"
