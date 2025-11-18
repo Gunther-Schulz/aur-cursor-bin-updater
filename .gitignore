@@ -7,3 +7,7 @@ pkg
 *.deb
 *.AppImage
 code.sh
+
+# Temporary test files
+PKGBUILD.backup
+PKGBUILD.test
