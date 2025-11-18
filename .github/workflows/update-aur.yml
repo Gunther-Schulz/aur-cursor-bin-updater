@@ -21,11 +21,11 @@ jobs:
         id: check
         run: |
           echo "::group::Checking for updates"
-          URL=https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable
+          URL='https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable'
           
           # Get latest version info
-          new_pkgver=$(curl -s $URL | jq -r .version)
-          new_commit=$(curl -s $URL | jq -r .commitSha)
+          new_pkgver=$(curl -s "$URL" | jq -r .version)
+          new_commit=$(curl -s "$URL" | jq -r .commitSha)
           
           # Get current version from PKGBUILD
           if [ -f PKGBUILD ]; then
@@ -56,7 +56,7 @@ jobs:
           
           echo "::group::Generating PKGBUILD"
           # Download .deb file
-          curl -s https://downloads.cursor.com/production/${new_commit}/linux/x64/deb/amd64/deb/cursor_${new_pkgver}_amd64.deb -o /tmp/cursor.deb
+          curl -s "https://downloads.cursor.com/production/${new_commit}/linux/x64/deb/amd64/deb/cursor_${new_pkgver}_amd64.deb" -o /tmp/cursor.deb
           
           # Calculate SHA512
           new_sha=$(sha512sum /tmp/cursor.deb | cut -d ' ' -f 1)
@@ -65,7 +65,7 @@ jobs:
           code_version=$(bsdtar xOf /tmp/cursor.deb data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json 2>/dev/null | jq -r .vscodeVersion)
           
           # Get Electron version from VSCode's package-lock.json
-          _electron=electron$(curl -sL https://github.com/microsoft/vscode/raw/refs/tags/${code_version}/package-lock.json | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
+          _electron=electron$(curl -sL "https://github.com/microsoft/vscode/raw/refs/tags/${code_version}/package-lock.json" | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
           
           echo "VSCode version: ${code_version}"
           echo "Electron: ${_electron}"

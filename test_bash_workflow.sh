@@ -25,10 +25,8 @@ if [ ! -f PKGBUILD.sed ]; then
     exit 1
 fi
 
-# Backup current PKGBUILD if it exists
+# Get current version from PKGBUILD if it exists
 if [ -f PKGBUILD ]; then
-    echo "💾 Backing up current PKGBUILD to PKGBUILD.backup"
-    cp PKGBUILD PKGBUILD.backup
     CURRENT_PKGVER=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
     CURRENT_COMMIT=$(grep -E '^_commit=' PKGBUILD | cut -d'=' -f2 | sed 's/ #.*//')
 else
@@ -173,10 +171,16 @@ if command -v makepkg &> /dev/null; then
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo ""
         echo "🧪 Testing PKGBUILD with makepkg (dry run)..."
+        # Backup original PKGBUILD only when needed for makepkg test
+        if [ -f PKGBUILD ]; then
+            cp PKGBUILD PKGBUILD.backup
+        fi
         cp PKGBUILD.test PKGBUILD
         makepkg --verifysource --noconfirm || echo "⚠️  makepkg test had issues (this is expected if source files aren't available)"
+        # Restore original PKGBUILD
         if [ -f PKGBUILD.backup ]; then
             mv PKGBUILD.backup PKGBUILD
+            echo "✓ Restored original PKGBUILD"
         fi
     fi
 fi
@@ -185,16 +189,15 @@ echo ""
 echo "📋 Summary:"
 echo "==========="
 echo "Generated PKGBUILD saved as: PKGBUILD.test"
-echo "Original PKGBUILD preserved as: PKGBUILD.backup (if it existed)"
+if [ -f PKGBUILD.backup ]; then
+    echo "Original PKGBUILD preserved as: PKGBUILD.backup (from makepkg test)"
+fi
 echo ""
 echo "To review the generated PKGBUILD:"
 echo "  cat PKGBUILD.test"
 echo ""
 echo "To compare with current PKGBUILD:"
 echo "  diff PKGBUILD PKGBUILD.test"
-echo ""
-echo "To restore original PKGBUILD:"
-echo "  mv PKGBUILD.backup PKGBUILD"
 echo ""
 echo "To use the generated PKGBUILD:"
 echo "  mv PKGBUILD.test PKGBUILD"
