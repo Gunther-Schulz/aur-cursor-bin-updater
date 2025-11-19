@@ -5,7 +5,6 @@ src
 pkg
 *.zst
 *.deb
-*.AppImage
 code.sh
 
 # Temporary test files
