@@ -78,7 +78,7 @@ jobs:
               -v electron="${_electron}" \
               'BEGIN {OFS=""} 
                /^pkgver=/ {print "pkgver=" pkgver; next}
-               /^_commit=/ {print "_commit=" commit " # sed'\''ded at GitHub WF"; next}
+               /^_commit=/ {print "_commit=" commit; next}
                /^sha512sums\[0\]=/ {print "sha512sums[0]=" sha; next}
                /^_electron=/ {print "_electron=" electron; next}
                {print}' PKGBUILD.sed > PKGBUILD
