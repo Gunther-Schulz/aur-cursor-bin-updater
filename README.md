@@ -50,10 +50,6 @@ makepkg -si
 
 | File | Purpose |
 |------|---------|
-| `check.py` | Detects new Cursor releases and determines update necessity |
-| `update_pkgbuild.py` | Updates PKGBUILD with new versions, URLs, and checksums |
-| `validate_pkgbuild.py` | Comprehensive validation (25+ checks) of generated PKGBUILD |
-| `test_workflow.py` | Local testing framework for the entire workflow |
 | `.github/workflows/update-aur.yml` | Automated GitHub Actions workflow |
 | `PKGBUILD` | The actual package build script |
 
@@ -78,9 +74,6 @@ makepkg -si
 #### Prerequisites
 
 ```bash
-# Install required tools
-sudo pacman -S python python-requests bsdtar
-pip install requests
 
 # For local testing (optional)
 yay -S act-bin  # GitHub Actions local runner
@@ -191,7 +184,6 @@ results["checks"].append({
 - [Cursor IDE Official Site](https://www.cursor.com)
 - [AUR cursor-bin Package](https://aur.archlinux.org/packages/cursor-bin)
 - [Arch Linux AUR Guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)
-- [Original PR #16 - .deb Migration](https://github.com/Gunther-Schulz/aur-cursor-bin-updater/pull/16)
 
 ---
 
