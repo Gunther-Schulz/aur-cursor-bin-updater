@@ -14,8 +14,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libarchive-tools jq curl
+          sudo apt-get update && sudo apt-get install -y libarchive-tools
+          # Omit preinstalled https://github.com/actions/runner-images/tree/main/images/ubuntu/*.md
 
       - name: Check for updates and generate PKGBUILD
         id: check
