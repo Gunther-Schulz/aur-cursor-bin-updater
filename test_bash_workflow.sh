@@ -36,11 +36,62 @@ fi
 
 echo ""
 echo "🔍 Checking for updates..."
-URL='https://cursor.com/api/download?platform=linux-x64&releaseTrack=stable'
 
-# Get latest version info
-NEW_PKGVER=$(curl -s "$URL" | jq -r .version)
-NEW_COMMIT=$(curl -s "$URL" | jq -r .commitSha)
+MAJOR=$(echo "$CURRENT_PKGVER" | cut -d'.' -f1)
+MINOR=$(echo "$CURRENT_PKGVER" | cut -d'.' -f2)
+echo "Current version: ${CURRENT_PKGVER} (major: $MAJOR, minor: $MINOR)"
+
+# Helper functions
+get_redirect() {
+    curl -sI "https://api2.cursor.sh/updates/download/golden/linux-x64-deb/cursor/$1" | grep -i '^location:' | cut -d' ' -f2 | tr -d '\r\n'
+}
+
+extract_version() { echo "$1" | sed -n 's|.*cursor_\([0-9.]*\)_amd64.*|\1|p'; }
+extract_commit() { echo "$1" | sed -n 's|.*/production/\([^/]*\).*|\1|p'; }
+version_to_number() { echo "$1" | awk -F. '{printf "%d%03d%03d", $1, $2, $3}'; }
+
+# Check a major version series, stores best redirect in BEST_REDIRECT if higher
+check_major_series() {
+    local major=$1 start_minor=$2 minor=$start_minor max_checks=20
+    echo "Checking major version $major..."
+    while [ $((minor - start_minor)) -lt $max_checks ]; do
+        local redirect=$(get_redirect "$major.$minor")
+        [ -z "$redirect" ] && { echo "  $major.$minor -> (no response)"; break; }
+        
+        local ver=$(extract_version "$redirect")
+        echo "  $major.$minor -> $ver"
+        
+        local ver_num=$(version_to_number "$ver")
+        [ "$ver_num" -gt "$BEST_NUM" ] && { BEST_NUM=$ver_num; BEST_REDIRECT=$redirect; }
+        
+        # Fallback detection: returned major.minor < checked major.minor means stop
+        local ret_mm=$(echo "$ver" | cut -d'.' -f1-2)
+        [ "$(version_to_number "$ret_mm.0")" -lt "$(version_to_number "$major.$minor.0")" ] && { echo "  (fallback detected, stopping)"; break; }
+        
+        minor=$((minor + 1))
+    done
+}
+
+# Find the latest version by checking current and next major
+BEST_REDIRECT=""
+BEST_NUM=0
+check_major_series "$MAJOR" "$MINOR"
+check_major_series "$((MAJOR + 1))" 0
+
+if [ -z "$BEST_REDIRECT" ]; then
+    echo "❌ ERROR: Failed to get version from any endpoint"
+    exit 1
+fi
+
+# Extract version and commit from the best redirect (no re-check needed)
+NEW_PKGVER=$(extract_version "$BEST_REDIRECT")
+NEW_COMMIT=$(extract_commit "$BEST_REDIRECT")
+echo "Latest version found: $NEW_PKGVER"
+
+if [ -z "$NEW_PKGVER" ] || [ -z "$NEW_COMMIT" ]; then
+    echo "❌ ERROR: Failed to extract version or commit from redirect URL"
+    exit 1
+fi
 
 echo "Current version: ${CURRENT_PKGVER:-none}"
 echo "Current commit: ${CURRENT_COMMIT:-none}"
