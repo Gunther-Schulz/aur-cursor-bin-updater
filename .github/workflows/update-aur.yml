@@ -105,7 +105,9 @@ jobs:
           code_version=$(bsdtar xOf /tmp/cursor.deb data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json 2>/dev/null | jq -r .vscodeVersion)
 
           # Get Electron version from VSCode's package-lock.json
-          _electron=electron$(curl -sL "https://github.com/microsoft/vscode/raw/refs/tags/${code_version}/package-lock.json" | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
+          # By unknown reason, cursor bumps Electron newer than VSCode and mask it from package.json
+          # We could extract from electron --version using Electron's default app, but we don't
+          _electron=electron #$(curl -sL "https://github.com/microsoft/vscode/raw/refs/tags/${code_version}/package-lock.json" | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
 
           echo "VSCode version: ${code_version}"
           echo "Electron: ${_electron}"
