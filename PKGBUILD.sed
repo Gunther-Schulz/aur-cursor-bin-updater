@@ -10,7 +10,7 @@ license=('LicenseRef-Cursor_EULA')
 _electron=
 depends=(xdg-utils ripgrep $_electron nodejs
   'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
-options=(!strip) # Don't break ext of VSCode
+options=(!strip !debug) # Don't break ext of VSCode
 _commit=
 source=("https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb"
 https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.sh rg.sh)
