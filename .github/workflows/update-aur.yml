@@ -25,57 +25,21 @@ jobs:
           # Get current version from PKGBUILD
           current_pkgver=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
           current_commit=$(grep -E '^_commit=' PKGBUILD | cut -d'=' -f2 | sed 's/ #.*//')
+          echo "Current version: $current_pkgver (commit: ${current_commit:0:8})"
 
-          MAJOR=$(echo "$current_pkgver" | cut -d'.' -f1)
-          MINOR=$(echo "$current_pkgver" | cut -d'.' -f2)
-          echo "Current version: $current_pkgver (major: $MAJOR, minor: $MINOR)"
-
-          # Helper functions
-          get_redirect() {
-            curl -sI "https://api2.cursor.sh/updates/download/golden/linux-x64-deb/cursor/$1" | grep -i '^location:' | cut -d' ' -f2 | tr -d '\r\n'
-          }
-          extract_version() { echo "$1" | sed -n 's|.*cursor_\([0-9.]*\)_amd64.*|\1|p'; }
-          extract_commit() { echo "$1" | sed -n 's|.*/production/\([^/]*\).*|\1|p'; }
-          version_to_number() { echo "$1" | awk -F. '{printf "%d%03d%03d", $1, $2, $3}'; }
-
-          # Check a major version series, stores best redirect in BEST_REDIRECT if higher
-          check_major_series() {
-            local major=$1 start_minor=$2 minor=$start_minor max_checks=20
-            echo "Checking major version $major..."
-            while [ $((minor - start_minor)) -lt $max_checks ]; do
-              local redirect=$(get_redirect "$major.$minor")
-              [ -z "$redirect" ] && { echo "  $major.$minor -> (no response)"; break; }
-              
-              local ver=$(extract_version "$redirect")
-              echo "  $major.$minor -> $ver"
-              
-              local ver_num=$(version_to_number "$ver")
-              [ "$ver_num" -gt "$BEST_NUM" ] && { BEST_NUM=$ver_num; BEST_REDIRECT=$redirect; }
-              
-              # Fallback detection: returned major.minor < checked major.minor means stop
-              local ret_mm=$(echo "$ver" | cut -d'.' -f1-2)
-              [ "$(version_to_number "$ret_mm.0")" -lt "$(version_to_number "$major.$minor.0")" ] && { echo "  (fallback detected, stopping)"; break; }
-              
-              minor=$((minor + 1))
-            done
-          }
-
-          # Find the latest version by checking current and next major
-          BEST_REDIRECT=""
-          BEST_NUM=0
-          check_major_series "$MAJOR" "$MINOR"
-          check_major_series "$((MAJOR + 1))" 0
-
-          if [ -z "$BEST_REDIRECT" ]; then
-            echo "ERROR: Failed to get version from any endpoint"
+          # Query the stable update API
+          api_response=$(curl -sf "https://api2.cursor.sh/updates/api/update/linux-x64/cursor/0.0.0/deadbeef/stable")
+          if [ -z "$api_response" ]; then
+            echo "ERROR: Failed to get response from update API"
             exit 1
           fi
 
-          # Extract version and commit from the best redirect (no re-check needed)
-          new_pkgver=$(extract_version "$BEST_REDIRECT")
-          new_commit=$(extract_commit "$BEST_REDIRECT")
+          new_pkgver=$(echo "$api_response" | jq -r '.version')
+          api_url=$(echo "$api_response" | jq -r '.url')
+          new_commit=$(echo "$api_url" | sed -n 's|.*/production/\([^/]*\).*|\1|p')
+
           if [ -z "$new_pkgver" ] || [ -z "$new_commit" ]; then
-            echo "ERROR: Failed to extract version or commit from redirect URL"
+            echo "ERROR: Failed to extract version or commit from API response"
             exit 1
           fi
 
