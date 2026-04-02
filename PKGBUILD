@@ -13,10 +13,11 @@ depends=(xdg-utils ripgrep $_electron nodejs
 options=(!strip !debug) # Don't break ext of VSCode
 _commit=63715ffc1807793ce209e935e5c3ab9b79fddc85
 source=("https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb"
-https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.sh rg.sh)
+https://gitlab.archlinux.org/archlinux/packaging/packages/code/-/raw/main/code.sh rg.sh cursor.mjs)
 sha512sums=('SKIP'
   '937299c6cb6be2f8d25f7dbc95cf77423875c5f8353b8bd6cd7cc8e5603cbf8405b14dbf8bd615db2e3b36ed680fc8e1909410815f7f8587b7267a699e00ab37'
-  'e79fe7659f59d1ae02fc68816399bfd31587315df6cdb6ccf1d0ca76f7cdc692c2a42b30591c0091147bd97ef14b1c7745dc26bd7cb3ea6bba45698e5044fa2a')
+  'e79fe7659f59d1ae02fc68816399bfd31587315df6cdb6ccf1d0ca76f7cdc692c2a42b30591c0091147bd97ef14b1c7745dc26bd7cb3ea6bba45698e5044fa2a'
+  '71f1f7f205f2fecc99c5b7b6ebfc83f88524166806dd4be4ff661fbab72ef71463c3f5d4baabfc1efa08f56dd389b668e1b8fd6a26275ea84fccb7a81d41dd2b')
 sha512sums[0]=cf0cab04f4059fd5c0f514ee629f3199258a711e646acd4eb5513dbd97e7504be06e463ecd7ce29ae62dd038f16ed69b7f48644d49071d7301483303208f8e41
 noextract=(cursor_${pkgver}_amd64.deb) # avoid double tarball
 _app=usr/share/cursor/resources/app
@@ -29,7 +30,8 @@ package() {
   ln -sf /usr/bin/node ${_app}/resources/helpers/node
   install -Dm755 "${srcdir}/rg.sh" ${_app}/node_modules/@vscode/ripgrep/bin/rg
   ln -sf /usr/bin/xdg-open ${_app}/node_modules/open/xdg-open
-  sed -e "s|code-flags|cursor-flags|" -e "s|/usr/lib/code|/${_app}|" -e "s|/usr/lib/code/code.mjs|--app=/${_app}|" \
+  install -Dm644 "${srcdir}/cursor.mjs" "${pkgdir}/${_app}/cursor.mjs"
+  sed -e "s|code-flags|cursor-flags|" -e "s|/usr/lib/code|/${_app}|" -e "s|/usr/lib/code/code.mjs|/${_app}/cursor.mjs|" \
     -e "s|name=electron|name=${_electron}|" "${srcdir}"/code.sh | install -Dm755 /dev/stdin "${pkgdir}"/usr/share/cursor/cursor
   install -d "$pkgdir"/usr/bin
   ln -sf /usr/share/cursor/cursor "$pkgdir"/usr/bin/cursor
