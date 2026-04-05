@@ -12,11 +12,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get install -y libarchive-tools
-          # Omit preinstalled https://github.com/actions/runner-images/tree/main/images/ubuntu/*.md
-
       - name: Check for updates and generate PKGBUILD
         id: check
         run: |
@@ -65,15 +60,15 @@ jobs:
           # Calculate SHA512
           new_sha=$(sha512sum /tmp/cursor.deb | cut -d ' ' -f 1)
 
-          # Extract VSCode version from product.json
-          code_version=$(bsdtar xOf /tmp/cursor.deb data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json 2>/dev/null | jq -r .vscodeVersion)
+          # no need to extract VSCode version from product.json as upstream has newer Electron...
+          # code_version=$(bsdtar xOf /tmp/cursor.deb data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json 2>/dev/null | jq -r .vscodeVersion)
 
           # Get Electron version from VSCode's package-lock.json
           # By unknown reason, cursor bumps Electron newer than VSCode and mask it from package.json
           # We could extract from electron --version using Electron's default app, but we don't
           _electron=electron #$(curl -sL "https://github.com/microsoft/vscode/raw/refs/tags/${code_version}/package-lock.json" | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
 
-          echo "VSCode version: ${code_version}"
+          # echo "VSCode version: ${code_version}"
           echo "Electron: ${_electron}"
 
           # Generate PKGBUILD from template
