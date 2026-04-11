@@ -1,7 +1,7 @@
 # Maintainer: Gunther Schulz <dev@guntherschulz.de>
 
 pkgname=cursor-bin
-pkgver=3.0.15
+pkgver=3.0.16
 pkgrel=1
 pkgdesc='AI-first coding environment'
 arch=('x86_64')
