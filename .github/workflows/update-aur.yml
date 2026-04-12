@@ -148,7 +148,7 @@ jobs:
 
       - name: Publish AUR package
         if: steps.check.outputs.update_needed == 'true' && github.ref != 'refs/heads/development'
-        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.2
         with:
           pkgname: cursor-bin
           pkgbuild: ./PKGBUILD
