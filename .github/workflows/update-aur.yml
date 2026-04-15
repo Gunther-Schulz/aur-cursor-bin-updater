@@ -20,7 +20,15 @@ jobs:
           # Get current version from PKGBUILD
           current_pkgver=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
           current_commit=$(grep -E '^_commit=' PKGBUILD | cut -d'=' -f2 | sed 's/ #.*//')
-          echo "Current version: $current_pkgver (commit: ${current_commit:0:8})"
+          echo "Local version: $current_pkgver (commit: ${current_commit:0:8})"
+
+          # Get current version from AUR
+          aur_response=$(curl -sf "https://aur.archlinux.org/rpc/?v=5&type=info&arg[]=cursor-bin")
+          aur_pkgver=""
+          if [ -n "$aur_response" ]; then
+            aur_pkgver=$(echo "$aur_response" | jq -r '.results[0].Version // empty' | cut -d'-' -f1)
+          fi
+          echo "AUR version: ${aur_pkgver:-unknown}"
 
           # Query the stable update API
           api_response=$(curl -sf "https://api2.cursor.sh/updates/api/update/linux-x64/cursor/0.0.0/deadbeef/stable")
@@ -41,8 +49,8 @@ jobs:
           echo "Latest: $new_pkgver (commit: ${new_commit:0:8})"
 
           # Check if update is needed
-          if [ "$current_pkgver" = "$new_pkgver" ] && [ "$current_commit" = "$new_commit" ]; then
-            echo "No update needed. Current version matches latest."
+          if [ "$current_pkgver" = "$new_pkgver" ] && [ "$current_commit" = "$new_commit" ] && [ "${aur_pkgver:-$current_pkgver}" = "$new_pkgver" ]; then
+            echo "No update needed. Local and AUR versions match latest."
             echo "update_needed=false" >> $GITHUB_OUTPUT
             exit 0
           fi
