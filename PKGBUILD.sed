@@ -7,6 +7,7 @@ pkgdesc='AI-first coding environment'
 arch=('x86_64')
 url="https://www.cursor.com"
 license=('LicenseRef-Cursor_EULA')
+# upstream uses Electron newer than internal VSCode
 _electron=
 depends=(xdg-utils ripgrep $_electron nodejs
   'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
