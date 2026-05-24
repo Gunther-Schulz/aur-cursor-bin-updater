@@ -17,6 +17,10 @@ jobs:
         run: |
           echo "::group::Checking for updates"
 
+          electron_is_specified() {
+            [ -n "$1" ] && echo "$1" | grep -qE '^electron[0-9]+$'
+          }
+
           detect_electron_from_deb() {
             local deb=$1 tmpdir major
             tmpdir=$(mktemp -d)
@@ -72,11 +76,24 @@ jobs:
 
           echo "Latest: $new_pkgver (commit: ${new_commit:0:8})"
 
-          # Download .deb for checksum and Electron detection
-          curl -sf "https://downloads.cursor.com/production/${new_commit}/linux/x64/deb/amd64/deb/cursor_${new_pkgver}_amd64.deb" -o /tmp/cursor.deb
-          new_sha=$(sha512sum /tmp/cursor.deb | cut -d ' ' -f 1)
-          _electron=$(detect_electron_from_deb /tmp/cursor.deb)
-          echo "Detected Electron dependency: ${_electron}"
+          needs_deb=false
+          if [ "$current_pkgver" != "$new_pkgver" ] || [ "$current_commit" != "$new_commit" ]; then
+            needs_deb=true
+          elif ! electron_is_specified "$current_electron"; then
+            needs_deb=true
+            echo "Electron dependency not specified in PKGBUILD; will download .deb to detect"
+          fi
+
+          if [ "$needs_deb" = true ]; then
+            curl -sf "https://downloads.cursor.com/production/${new_commit}/linux/x64/deb/amd64/deb/cursor_${new_pkgver}_amd64.deb" -o /tmp/cursor.deb
+            new_sha=$(sha512sum /tmp/cursor.deb | cut -d ' ' -f 1)
+            _electron=$(detect_electron_from_deb /tmp/cursor.deb)
+            echo "Detected Electron dependency: ${_electron}"
+          else
+            echo "Skipping .deb download (version unchanged, electron already specified: ${current_electron})"
+            _electron=$current_electron
+            new_sha=$current_sha
+          fi
 
           if [ "$current_pkgver" != "$new_pkgver" ] || [ "$current_commit" != "$new_commit" ]; then
             new_pkgrel=1

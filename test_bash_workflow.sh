@@ -8,6 +8,10 @@ echo "🧪 Testing bash-based PKGBUILD generation workflow"
 echo "=================================================="
 echo ""
 
+electron_is_specified() {
+  [ -n "$1" ] && echo "$1" | grep -qE '^electron[0-9]+$'
+}
+
 detect_electron_from_deb() {
   local deb=$1 tmpdir major
   tmpdir=$(mktemp -d)
@@ -86,16 +90,30 @@ fi
 echo "Latest: $NEW_PKGVER (commit: ${NEW_COMMIT:0:8})"
 echo ""
 
-echo "⬇️  Downloading .deb file..."
-curl -sf "https://downloads.cursor.com/production/${NEW_COMMIT}/linux/x64/deb/amd64/deb/cursor_${NEW_PKGVER}_amd64.deb" -o /tmp/cursor_test.deb
+NEEDS_DEB=false
+if [ "$CURRENT_PKGVER" != "$NEW_PKGVER" ] || [ "$CURRENT_COMMIT" != "$NEW_COMMIT" ]; then
+  NEEDS_DEB=true
+elif ! electron_is_specified "$CURRENT_ELECTRON"; then
+  NEEDS_DEB=true
+  echo "Electron dependency not specified in PKGBUILD; will download .deb to detect"
+fi
 
-echo "🔐 Calculating SHA512 checksum..."
-NEW_SHA=$(sha512sum /tmp/cursor_test.deb | cut -d ' ' -f 1)
-echo "SHA512: ${NEW_SHA:0:20}..."
+if [ "$NEEDS_DEB" = true ]; then
+  echo "⬇️  Downloading .deb file..."
+  curl -sf "https://downloads.cursor.com/production/${NEW_COMMIT}/linux/x64/deb/amd64/deb/cursor_${NEW_PKGVER}_amd64.deb" -o /tmp/cursor_test.deb
 
-echo "⚡ Detecting Electron version from bundled binary..."
-_ELECTRON=$(detect_electron_from_deb /tmp/cursor_test.deb)
-echo "Detected Electron dependency: ${_ELECTRON}"
+  echo "🔐 Calculating SHA512 checksum..."
+  NEW_SHA=$(sha512sum /tmp/cursor_test.deb | cut -d ' ' -f 1)
+  echo "SHA512: ${NEW_SHA:0:20}..."
+
+  echo "⚡ Detecting Electron version from bundled binary..."
+  _ELECTRON=$(detect_electron_from_deb /tmp/cursor_test.deb)
+  echo "Detected Electron dependency: ${_ELECTRON}"
+else
+  echo "⏭️  Skipping .deb download (version unchanged, electron already specified: ${CURRENT_ELECTRON})"
+  _ELECTRON=$CURRENT_ELECTRON
+  NEW_SHA=$CURRENT_SHA
+fi
 echo ""
 
 if [ "$CURRENT_PKGVER" != "$NEW_PKGVER" ] || [ "$CURRENT_COMMIT" != "$NEW_COMMIT" ]; then
