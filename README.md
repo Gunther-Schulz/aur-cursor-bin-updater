@@ -1,190 +1,122 @@
 # AUR Cursor Binary Package Updater
 
-Automated maintenance system for the [cursor-bin](https://aur.archlinux.org/packages/cursor-bin) AUR package. This repository automatically monitors Cursor IDE releases and maintains the PKGBUILD for Arch Linux users.
+Automated maintenance for the [cursor-bin](https://aur.archlinux.org/packages/cursor-bin) AUR package. This repository monitors Cursor releases and keeps the PKGBUILD in sync for Arch Linux users.
 
-## 🎯 What This Repository Does
+## What This Repository Does
 
-This is **not** a manual installation guide for Cursor IDE. Instead, it's an automated system that:
+This is **not** an installation guide for Cursor. It is the automation that:
 
-- 🔍 **Monitors** Cursor IDE releases automatically via GitHub Actions
-- 📦 **Generates** proper PKGBUILDs with correct versions, checksums, and dependencies  
-- 🚀 **Publishes** updates to the AUR automatically
-- ✅ **Validates** all changes with comprehensive testing (25+ checks)
-- 🔧 **Maintains** the package using modern .deb format (not AppImage)
+- Monitors Cursor releases via GitHub Actions (hourly, plus manual trigger)
+- Generates PKGBUILDs with correct version, commit, checksum, and Electron dependency
+- Publishes updates to the AUR automatically from `main`
 
-## 📥 Installing Cursor IDE (End Users)
+The package itself repackages Cursor's official `.deb` and follows the same system-Electron approach as Arch's [`extra/code`](https://gitlab.archlinux.org/archlinux/packaging/packages/code) package.
 
-If you just want to **install** Cursor IDE on Arch Linux, use your AUR helper:
+## Installing Cursor (End Users)
+
+Use your AUR helper:
 
 ```bash
-# Using yay
 yay -S cursor-bin
-
-# Using paru  
+# or
 paru -S cursor-bin
-
-# Using makepkg (manual)
-git clone https://aur.archlinux.org/cursor-bin.git
-cd cursor-bin
-makepkg -si
 ```
 
-## 🛠️ Development & Maintenance
-
-### Architecture Overview
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Cursor.com    │───▶│  GitHub Actions  │───▶│  AUR Package    │
-│   (releases)    │    │  (this repo)     │    │  (cursor-bin)   │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                              ▼
-                       ┌──────────────────┐
-                       │   Validation     │
-                       │   (25+ checks)   │
-                       └──────────────────┘
-```
-
-### Key Components
+## Repository Layout
 
 | File | Purpose |
 |------|---------|
-| `.github/workflows/update-aur.yml` | Automated GitHub Actions workflow |
-| `PKGBUILD` | The actual package build script |
+| `.github/workflows/update-aur.yml` | CI workflow: check, generate, commit, publish |
+| `PKGBUILD.sed` | Template used to generate `PKGBUILD` |
+| `PKGBUILD` | Current package definition (updated by CI) |
+| `rg.sh` | Ripgrep wrapper shipped with the AUR package |
+| `test_bash_workflow.sh` | Local test script mirroring the CI workflow |
+| `TESTING.md` | Safe testing guide before merging to `main` |
 
-### Automated Workflow
+## Automated Workflow
 
-1. **🕐 Scheduled Check**: GitHub Actions runs daily (and on manual trigger)
-2. **🔍 Version Detection**: `check.py` compares latest Cursor version with AUR
-3. **📦 PKGBUILD Update**: `update_pkgbuild.py` generates new PKGBUILD with:
-   - Correct version and commit hash
-   - Updated download URLs  
-   - Recalculated SHA512 checksums
-   - Dynamic Electron version detection
-4. **✅ Validation**: 25+ comprehensive checks ensure quality *(development branch only)*
-5. **🚀 AUR Publish**: Automatic commit and push to AUR *(main branch only)*
+1. Query Cursor's stable update API and the AUR RPC for the current package state
+2. Download the upstream `.deb`
+3. Detect the required `electronXX` dependency from the bundled Cursor binary
+4. Decide whether an update is needed (see below)
+5. Generate `PKGBUILD` from `PKGBUILD.sed`
+6. Commit to this repo and publish to AUR (`main` only)
 
-**Branch Behavior**:
-- **Development**: Runs steps 1-4, skips AUR publish for safe testing
-- **Main**: Runs steps 1-3 + 5, skips validation for faster production updates
+### When an Update Triggers
 
-### Local Development
+An update runs if **any** of these are out of sync with upstream:
 
-#### Prerequisites
+- Local `pkgver`, `_commit`, `_electron`, `pkgrel`, or checksum
+- AUR version, pkgrel, or Electron dependency
 
-```bash
+Even when Cursor's version hasn't changed, a wrong Electron dependency (for example `electron` instead of `electron39`) will trigger a rebuild and **pkgrel bump**.
 
-# For local testing (optional)
-yay -S act-bin  # GitHub Actions local runner
-```
-
-#### Manual Update Process
-
-```bash
-# 1. Check for updates
-python check.py
-
-# 2. Apply updates (if needed)
-python update_pkgbuild.py check_output.json
-
-# 3. Validate the result
-python validate_pkgbuild.py
-
-# 4. Test locally
-makepkg -s
-```
-
-#### Full Workflow Testing
-
-```bash
-# Test the complete GitHub Actions workflow locally
-python test_workflow.py --run
-```
-
-This simulates the entire automated process including:
-- Version downgrade simulation
-- Complete workflow execution in Docker
-- Comprehensive validation
-- Result reporting
-
-### Branch Strategy
-
-- **`main`**: Production branch - triggers actual AUR updates (no validation step)
-- **`development`**: Testing branch - runs comprehensive validation + DEBUG mode (no AUR push)
-
-**Important**: The 25+ validation checks only run automatically on the `development` branch. This ensures thorough testing before changes reach production.
-
-### Validation System
-
-The system performs 25+ comprehensive checks:
-
-| Category | Checks |
-|----------|--------|
-| **Format** | Version format, pkgrel validation, commit hash format |
-| **Content** | SHA512 checksums, electron version, source URLs |
-| **Functionality** | Tool availability, URL accessibility, command syntax |
-| **Integration** | Native titlebar fix, cursor.sh transformation |
-| **Advanced** | Dynamic electron detection, actual file verification |
-
-## 🔧 Advanced Features
+On a new upstream release, `pkgrel` resets to `1`.
 
 ### Electron Version Detection
 
-The system automatically detects the correct Electron version by:
-1. Extracting VSCode version from Cursor's `product.json`
-2. Downloading VSCode source tarball
-3. Parsing `package-lock.json` for Electron dependencies
-4. Updating PKGBUILD with correct `electronXX` package
-
-### Debug Mode
-
-Enable verbose logging for troubleshooting:
+Cursor ships a newer Electron than its embedded VSCode version reports, so the workflow reads the bundled binary inside the `.deb`:
 
 ```bash
-DEBUG=true python check.py
-DEBUG=true python update_pkgbuild.py check_output.json
+ar x cursor.deb data.tar.xz
+tar xJf data.tar.xz -O ./usr/share/cursor/cursor | strings | grep -oE 'Electron/[0-9]+'
 ```
 
-## 🤝 Contributing
+The major version becomes the `_electron=electronXX` dependency and launcher path.
 
-### Reporting Issues
+### Branch Behavior
 
-- **Package Issues**: Report to [AUR cursor-bin page](https://aur.archlinux.org/packages/cursor-bin)
-- **Automation Issues**: Create issues in this repository
+| Branch | Commits to repo | Publishes to AUR |
+|--------|-----------------|------------------|
+| `main` | Yes | Yes |
+| `development` | Yes | No (stops before SSH/AUR deploy) |
 
-### Development
+Use `development` to verify generated PKGBUILDs before they reach the AUR. See [TESTING.md](TESTING.md) for details.
 
-1. Fork this repository
-2. Create feature branch from `development`
-3. Test changes with `python test_workflow.py --run`
-4. Submit PR against `development` branch
+## Local Development
 
-### Adding New Checks
+### Test the workflow logic
 
-To add validation checks, modify `validate_pkgbuild.py`:
-
-```python
-# Add new check in validate_pkgbuild() function
-results["checks"].append({
-    "check": "your_check_name",
-    "status": "pass" or "fail", 
-    "message": "Description of what was checked"
-})
+```bash
+./test_bash_workflow.sh
 ```
 
-## 📊 Monitoring
+This mirrors the CI steps without committing or touching the AUR. Output is written to `PKGBUILD.test`.
 
-- **GitHub Actions**: Check workflow runs for automation status
-- **AUR Package**: Monitor [cursor-bin](https://aur.archlinux.org/packages/cursor-bin) for updates
-- **Issues**: Watch this repository for automation problems
+Dependencies: `curl`, `jq`, `ar`, `tar`, `sha512sum`, `awk`, `grep`, `strings` (all standard on Arch).
 
-## 🔗 Related Links
+### Test a build
 
-- [Cursor IDE Official Site](https://www.cursor.com)
-- [AUR cursor-bin Package](https://aur.archlinux.org/packages/cursor-bin)
-- [Arch Linux AUR Guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)
+```bash
+./test_bash_workflow.sh
+mv PKGBUILD.test PKGBUILD
+makepkg -si
+```
 
----
+### Run GitHub Actions locally (optional)
 
-**Note**: This repository maintains the AUR package automatically. End users should install `cursor-bin` directly from the AUR, not from this repository.
+```bash
+yay -S act-bin
+act workflow_dispatch
+```
+
+## Contributing
+
+- **Package/runtime issues**: [AUR cursor-bin](https://aur.archlinux.org/packages/cursor-bin)
+- **Automation issues**: issues/PRs in this repository
+
+1. Branch from `development`
+2. Test with `./test_bash_workflow.sh`
+3. Optionally push to `development` and verify the GitHub Actions run
+4. Open a PR against `development`, then merge to `main` when ready
+
+## Monitoring
+
+- [GitHub Actions](../../actions) — workflow runs
+- [AUR cursor-bin](https://aur.archlinux.org/packages/cursor-bin) — published package
+
+## Related Links
+
+- [Cursor](https://www.cursor.com)
+- [Arch `code` PKGBUILD](https://gitlab.archlinux.org/archlinux/packaging/packages/code) — upstream packaging this derives from
+- [AUR submission guidelines](https://wiki.archlinux.org/title/AUR_submission_guidelines)

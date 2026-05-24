@@ -17,18 +17,42 @@ jobs:
         run: |
           echo "::group::Checking for updates"
 
+          detect_electron_from_deb() {
+            local deb=$1 tmpdir major
+            tmpdir=$(mktemp -d)
+            cp "$deb" "$tmpdir/pkg.deb"
+            (cd "$tmpdir" && ar x pkg.deb data.tar.xz)
+            major=$(tar xJf "$tmpdir/data.tar.xz" -O ./usr/share/cursor/cursor \
+              | strings | grep -oE 'Electron/[0-9]+' | head -1 | cut -d/ -f2)
+            rm -rf "$tmpdir"
+            if [ -z "$major" ]; then
+              echo "ERROR: Failed to detect Electron version from .deb" >&2
+              exit 1
+            fi
+            echo "electron${major}"
+          }
+
           # Get current version from PKGBUILD
           current_pkgver=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
+          current_pkgrel=$(grep -E '^pkgrel=' PKGBUILD | cut -d'=' -f2)
+          current_pkgrel=${current_pkgrel:-1}
           current_commit=$(grep -E '^_commit=' PKGBUILD | cut -d'=' -f2 | sed 's/ #.*//')
-          echo "Local version: $current_pkgver (commit: ${current_commit:0:8})"
+          current_electron=$(grep -E '^_electron=' PKGBUILD | cut -d'=' -f2)
+          current_sha=$(grep -E '^sha512sums\[0\]=' PKGBUILD | cut -d'=' -f2)
+          echo "Local version: ${current_pkgver}-${current_pkgrel} (commit: ${current_commit:0:8}, ${current_electron})"
 
           # Get current version from AUR
           aur_response=$(curl -sf "https://aur.archlinux.org/rpc/?v=5&type=info&arg[]=cursor-bin")
           aur_pkgver=""
+          aur_pkgrel=""
+          aur_electron=""
           if [ -n "$aur_response" ]; then
-            aur_pkgver=$(echo "$aur_response" | jq -r '.results[0].Version // empty' | cut -d'-' -f1)
+            aur_version=$(echo "$aur_response" | jq -r '.results[0].Version // empty')
+            aur_pkgver=$(echo "$aur_version" | cut -d'-' -f1)
+            aur_pkgrel=$(echo "$aur_version" | cut -d'-' -f2)
+            aur_electron=$(echo "$aur_response" | jq -r '.results[0].Depends[]? | select(test("^electron"))' | head -1)
           fi
-          echo "AUR version: ${aur_pkgver:-unknown}"
+          echo "AUR version: ${aur_pkgver:-unknown}-${aur_pkgrel:-?} (${aur_electron:-unknown electron dep})"
 
           # Query the stable update API
           api_response=$(curl -sf "https://api2.cursor.sh/updates/api/update/linux-x64/cursor/0.0.0/deadbeef/stable")
@@ -48,53 +72,89 @@ jobs:
 
           echo "Latest: $new_pkgver (commit: ${new_commit:0:8})"
 
-          # Check if update is needed
-          if [ "$current_pkgver" = "$new_pkgver" ] && [ "$current_commit" = "$new_commit" ] && [ "${aur_pkgver:-$current_pkgver}" = "$new_pkgver" ]; then
-            echo "No update needed. Local and AUR versions match latest."
+          # Download .deb for checksum and Electron detection
+          curl -sf "https://downloads.cursor.com/production/${new_commit}/linux/x64/deb/amd64/deb/cursor_${new_pkgver}_amd64.deb" -o /tmp/cursor.deb
+          new_sha=$(sha512sum /tmp/cursor.deb | cut -d ' ' -f 1)
+          _electron=$(detect_electron_from_deb /tmp/cursor.deb)
+          echo "Detected Electron dependency: ${_electron}"
+
+          if [ "$current_pkgver" != "$new_pkgver" ] || [ "$current_commit" != "$new_commit" ]; then
+            new_pkgrel=1
+          elif [ "$current_electron" != "$_electron" ]; then
+            new_pkgrel=$((current_pkgrel + 1))
+          else
+            new_pkgrel=$current_pkgrel
+          fi
+
+          local_needs_update=false
+          [ "$current_pkgver" != "$new_pkgver" ] && local_needs_update=true
+          [ "$current_commit" != "$new_commit" ] && local_needs_update=true
+          [ "$current_electron" != "$_electron" ] && local_needs_update=true
+          [ "$current_pkgrel" != "$new_pkgrel" ] && local_needs_update=true
+          [ "$current_sha" != "$new_sha" ] && local_needs_update=true
+
+          aur_needs_update=false
+          [ "${aur_pkgver:-}" != "$new_pkgver" ] && aur_needs_update=true
+          [ "${aur_pkgrel:-}" != "$new_pkgrel" ] && aur_needs_update=true
+          [ "${aur_electron:-}" != "$_electron" ] && aur_needs_update=true
+
+          if [ "$local_needs_update" = false ] && [ "$aur_needs_update" = false ]; then
+            echo "No update needed. Local and AUR match latest upstream."
             echo "update_needed=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "Update needed!"
+          if [ "$local_needs_update" = true ] && [ "$aur_needs_update" = false ]; then
+            echo "Update needed: local PKGBUILD out of date."
+          elif [ "$local_needs_update" = false ] && [ "$aur_needs_update" = true ]; then
+            echo "Update needed: AUR package out of sync."
+          else
+            echo "Update needed!"
+          fi
+          if [ "$current_electron" != "$_electron" ]; then
+            echo "Electron dependency fix: ${current_electron:-none} -> ${_electron} (pkgrel ${new_pkgrel})"
+          fi
+
+          electron_fix=false
+          if [ "$current_electron" != "$_electron" ] && [ "$current_pkgver" = "$new_pkgver" ] && [ "$current_commit" = "$new_commit" ]; then
+            electron_fix=true
+          fi
+
+          if [ "$electron_fix" = true ]; then
+            aur_commit_msg="Bump pkgrel to ${new_pkgrel}: fix electron dependency (${_electron})"
+          else
+            aur_commit_msg="Update to version ${new_pkgver} (commit ${new_commit})"
+          fi
+
           echo "update_needed=true" >> $GITHUB_OUTPUT
           echo "new_version=${new_pkgver}" >> $GITHUB_OUTPUT
           echo "new_commit=${new_commit}" >> $GITHUB_OUTPUT
+          echo "new_pkgrel=${new_pkgrel}" >> $GITHUB_OUTPUT
+          echo "new_electron=${_electron}" >> $GITHUB_OUTPUT
+          echo "electron_fix=${electron_fix}" >> $GITHUB_OUTPUT
+          echo "aur_commit_msg=${aur_commit_msg}" >> $GITHUB_OUTPUT
           echo "::endgroup::"
 
           echo "::group::Generating PKGBUILD"
-          # Download .deb file
-          curl -s "https://downloads.cursor.com/production/${new_commit}/linux/x64/deb/amd64/deb/cursor_${new_pkgver}_amd64.deb" -o /tmp/cursor.deb
-
-          # Calculate SHA512
-          new_sha=$(sha512sum /tmp/cursor.deb | cut -d ' ' -f 1)
-
-          # no need to extract VSCode version from product.json as upstream has newer Electron...
-          # code_version=$(bsdtar xOf /tmp/cursor.deb data.tar.xz | bsdtar xOf - ./usr/share/cursor/resources/app/product.json 2>/dev/null | jq -r .vscodeVersion)
-
-          # Get Electron version from VSCode's package-lock.json
-          # By unknown reason, cursor bumps Electron newer than VSCode and mask it from package.json
-          # We could extract from electron --version using Electron's default app, but we don't
-          _electron=electron #$(curl -sL "https://github.com/microsoft/vscode/raw/refs/tags/${code_version}/package-lock.json" | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
-
-          # echo "VSCode version: ${code_version}"
-          echo "Electron: ${_electron}"
-
-          # Generate PKGBUILD from template
-          # Use awk for sha512sum replacement as sed has issues with brackets
           awk -v pkgver="${new_pkgver}" \
+              -v pkgrel="${new_pkgrel}" \
               -v commit="${new_commit}" \
               -v sha="${new_sha}" \
               -v electron="${_electron}" \
               'BEGIN {OFS=""} 
                /^pkgver=/ {print "pkgver=" pkgver; next}
+               /^pkgrel=/ {print "pkgrel=" pkgrel; next}
                /^_commit=/ {print "_commit=" commit; next}
                /^sha512sums\[0\]=/ {print "sha512sums[0]=" sha; next}
                /^_electron=/ {print "_electron=" electron; next}
                {print}' PKGBUILD.sed > PKGBUILD
 
-          # Basic validation
           if ! grep -q "^pkgver=${new_pkgver}$" PKGBUILD; then
             echo "ERROR: pkgver not set correctly"
+            exit 1
+          fi
+          if ! grep -q "^pkgrel=${new_pkgrel}$" PKGBUILD; then
+            echo "ERROR: pkgrel not set correctly"
             exit 1
           fi
           if ! grep -q "^_commit=${new_commit}" PKGBUILD; then
@@ -121,16 +181,20 @@ jobs:
       - name: Commit changes
         if: steps.check.outputs.update_needed == 'true'
         run: |
-          # Clean up untracked files
           git clean -fd
 
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # Add PKGBUILD
-          git add PKGBUILD
-          git commit -m "Update PKGBUILD to version ${{ steps.check.outputs.new_version }} (commit ${{ steps.check.outputs.new_commit }})" || echo "No changes to commit"
 
-          # Push changes to repository
+          if [ "${{ steps.check.outputs.electron_fix }}" = "true" ]; then
+            commit_msg="Bump pkgrel to ${{ steps.check.outputs.new_pkgrel }}: fix electron dependency (${{ steps.check.outputs.new_electron }})"
+          else
+            commit_msg="Update PKGBUILD to version ${{ steps.check.outputs.new_version }} (commit ${{ steps.check.outputs.new_commit }})"
+          fi
+
+          git add PKGBUILD
+          git commit -m "$commit_msg" || echo "No changes to commit"
+
           echo "Pushing changes to remote repository..."
           git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }}
         env:
@@ -163,7 +227,7 @@ jobs:
           commit_username: ${{ secrets.AUR_USERNAME }}
           commit_email: ${{ secrets.AUR_EMAIL }}
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          commit_message: "Update to version ${{ steps.check.outputs.new_version }} (commit ${{ steps.check.outputs.new_commit }})"
+          commit_message: ${{ steps.check.outputs.aur_commit_msg }}
           allow_empty_commits: false
           ssh_keyscan_types: rsa,ecdsa,ed25519
           assets: rg.sh
@@ -174,6 +238,8 @@ jobs:
           echo "Update needed: ${{ steps.check.outputs.update_needed }}"
           echo "New version: ${{ steps.check.outputs.new_version }}"
           echo "New commit: ${{ steps.check.outputs.new_commit }}"
+          echo "New pkgrel: ${{ steps.check.outputs.new_pkgrel }}"
+          echo "Electron: ${{ steps.check.outputs.new_electron }}"
           if [ "${{ steps.check.outputs.update_needed }}" = "true" ]; then
             echo "PKGBUILD updated and published to AUR"
           else

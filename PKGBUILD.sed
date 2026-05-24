@@ -32,7 +32,8 @@ package() {
   ln -sf /usr/bin/node ${_app}/resources/helpers/node
   install -Dm755 "${srcdir}/rg.sh" ${_app}/node_modules/@vscode/ripgrep/bin/rg
   ln -sf /usr/bin/xdg-open ${_app}/node_modules/open/xdg-open
-  sed -e "s|code-oss|cursor|g" -e "s|code.mjs|cursor.mjs|g" \
+  sed -e "1s|.*|#!/usr/lib/${_electron}/electron|" \
+      -e "s|code-oss|cursor|g" -e "s|code.mjs|cursor.mjs|g" \
     "${srcdir}"/code.mjs | install -Dm644 /dev/stdin "${pkgdir}/${_app}/cursor.mjs"
   sed -e "s|code-flags|cursor-flags|" -e "s|/usr/lib/code|/${_app}|" -e "s|/usr/lib/code/code.mjs|/${_app}/cursor.mjs|" \
     -e "s|name=electron|name=${_electron}|" "${srcdir}"/code.sh | install -Dm755 /dev/stdin "${pkgdir}"/usr/share/cursor/cursor
