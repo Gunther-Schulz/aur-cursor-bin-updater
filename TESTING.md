@@ -175,7 +175,7 @@ Before merging to `main`:
 - Confirm the detected major version matches an `electronNN` package in Arch repos
 
 ### Local test script fails
-- Install missing dependencies: `sudo pacman -S binutils jq curl`
+- Install missing dependencies: `sudo pacman -S base-devel jq`
 - Check network connectivity
 - Verify Cursor API is accessible
 
