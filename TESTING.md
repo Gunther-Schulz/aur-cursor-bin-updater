@@ -174,7 +174,7 @@ Before merging to `main`:
 - Check jq parsing of package-lock.json
 
 ### Local test script fails
-- Install missing dependencies: `sudo pacman -S libarchive jq curl`
+- Install missing dependencies: `sudo pacman -S base-devel jq`
 - Check network connectivity
 - Verify Cursor API is accessible
 
