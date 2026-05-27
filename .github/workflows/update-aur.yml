@@ -222,8 +222,6 @@ jobs:
           if [[ "${{ github.ref }}" == "refs/heads/development" ]]; then
             echo "On development branch, stopping workflow"
             exit 0
-          else
-            echo "On main branch, continuing workflow"
           fi
 
       - name: Install SSH Key
@@ -256,9 +254,7 @@ jobs:
           echo "New commit: ${{ steps.check.outputs.new_commit }}"
           echo "New pkgrel: ${{ steps.check.outputs.new_pkgrel }}"
           echo "Electron: ${{ steps.check.outputs.new_electron }}"
-          if [ "${{ steps.check.outputs.update_needed }}" = "true" ]; then
-            echo "PKGBUILD updated and published to AUR"
-          else
-            echo "No update needed"
-          fi
+          [ "${{ steps.check.outputs.update_needed }}" = "true" ] \
+            && echo "PKGBUILD updated and published to AUR" \
+            || echo "No update needed"
           echo "::endgroup::"
