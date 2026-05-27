@@ -28,7 +28,6 @@ jobs:
             (cd "$tmpdir" && ar x pkg.deb data.tar.xz)
             major=$(tar xJf "$tmpdir/data.tar.xz" -O ./usr/share/cursor/cursor \
               | strings | grep -oE 'Electron/[0-9]+' | head -1 | cut -d/ -f2)
-            rm -rf "$tmpdir"
             if [ -z "$major" ]; then
               echo "ERROR: Failed to detect Electron version from .deb" >&2
               exit 1
