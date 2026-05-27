@@ -1,6 +1,6 @@
 #!/bin/bash
 # Local test script for the bash-based PKGBUILD generation workflow
-# This simulates what the GitHub Actions workflow does without committing anything
+# Mirrors .github/workflows/update-aur.yml without committing anything
 
 set -e
 
@@ -8,204 +8,222 @@ echo "🧪 Testing bash-based PKGBUILD generation workflow"
 echo "=================================================="
 echo ""
 
-# Check dependencies
+electron_is_specified() {
+  [ -n "$1" ] && echo "$1" | grep -qE '^electron[0-9]+$'
+}
+
+detect_electron_from_deb() {
+  local deb=$1 tmpdir major
+  tmpdir=$(mktemp -d)
+  cp "$deb" "$tmpdir/pkg.deb"
+  (cd "$tmpdir" && ar x pkg.deb data.tar.xz)
+  major=$(tar xJf "$tmpdir/data.tar.xz" -O ./usr/share/cursor/cursor \
+    | strings | grep -oE 'Electron/[0-9]+' | head -1 | cut -d/ -f2)
+  rm -rf "$tmpdir"
+  if [ -z "$major" ]; then
+    echo "ERROR: Failed to detect Electron version from .deb" >&2
+    exit 1
+  fi
+  echo "electron${major}"
+}
+
 echo "📦 Checking dependencies..."
-for cmd in curl jq bsdtar sha512sum sed grep; do
-    if ! command -v $cmd &> /dev/null; then
-        echo "❌ Missing: $cmd"
-        exit 1
-    fi
+for cmd in curl jq ar tar sha512sum awk grep strings; do
+  if ! command -v $cmd &> /dev/null; then
+    echo "❌ Missing: $cmd"
+    exit 1
+  fi
 done
 echo "✓ All dependencies available"
 echo ""
 
-# Check if PKGBUILD.sed exists
 if [ ! -f PKGBUILD.sed ]; then
-    echo "❌ PKGBUILD.sed not found!"
-    exit 1
+  echo "❌ PKGBUILD.sed not found!"
+  exit 1
 fi
 
-# Get current version from PKGBUILD if it exists
 if [ -f PKGBUILD ]; then
-    CURRENT_PKGVER=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
-    CURRENT_COMMIT=$(grep -E '^_commit=' PKGBUILD | cut -d'=' -f2 | sed 's/ #.*//')
+  CURRENT_PKGVER=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
+  CURRENT_PKGREL=$(grep -E '^pkgrel=' PKGBUILD | cut -d'=' -f2)
+  CURRENT_PKGREL=${CURRENT_PKGREL:-1}
+  CURRENT_COMMIT=$(grep -E '^_commit=' PKGBUILD | cut -d'=' -f2 | sed 's/ #.*//')
+  CURRENT_ELECTRON=$(grep -E '^_electron=' PKGBUILD | cut -d'=' -f2)
+  CURRENT_SHA=$(grep -E '^sha512sums\[0\]=' PKGBUILD | cut -d'=' -f2)
 else
-    CURRENT_PKGVER=""
-    CURRENT_COMMIT=""
+  CURRENT_PKGVER=""
+  CURRENT_PKGREL=1
+  CURRENT_COMMIT=""
+  CURRENT_ELECTRON=""
+  CURRENT_SHA=""
 fi
 
-echo ""
 echo "🔍 Checking for updates..."
+echo "Local version: ${CURRENT_PKGVER:-none}-${CURRENT_PKGREL:-?} (commit: ${CURRENT_COMMIT:0:8}, ${CURRENT_ELECTRON:-unknown})"
 
-MAJOR=$(echo "$CURRENT_PKGVER" | cut -d'.' -f1)
-MINOR=$(echo "$CURRENT_PKGVER" | cut -d'.' -f2)
-echo "Current version: ${CURRENT_PKGVER} (major: $MAJOR, minor: $MINOR)"
+AUR_PKGVER=""
+AUR_PKGREL=""
+AUR_ELECTRON=""
+aur_response=$(curl -sf "https://aur.archlinux.org/rpc/?v=5&type=info&arg[]=cursor-bin" || true)
+if [ -n "$aur_response" ]; then
+  aur_version=$(echo "$aur_response" | jq -r '.results[0].Version // empty')
+  AUR_PKGVER=$(echo "$aur_version" | cut -d'-' -f1)
+  AUR_PKGREL=$(echo "$aur_version" | cut -d'-' -f2)
+  AUR_ELECTRON=$(echo "$aur_response" | jq -r '.results[0].Depends[]? | select(test("^electron"))' | head -1)
+fi
+echo "AUR version: ${AUR_PKGVER:-unknown}-${AUR_PKGREL:-?} (${AUR_ELECTRON:-unknown electron dep})"
 
-# Helper functions
-get_redirect() {
-    curl -sI "https://api2.cursor.sh/updates/download/golden/linux-x64-deb/cursor/$1" | grep -i '^location:' | cut -d' ' -f2 | tr -d '\r\n'
-}
-
-extract_version() { echo "$1" | sed -n 's|.*cursor_\([0-9.]*\)_amd64.*|\1|p'; }
-extract_commit() { echo "$1" | sed -n 's|.*/production/\([^/]*\).*|\1|p'; }
-version_to_number() { echo "$1" | awk -F. '{printf "%d%03d%03d", $1, $2, $3}'; }
-
-# Check a major version series, stores best redirect in BEST_REDIRECT if higher
-check_major_series() {
-    local major=$1 start_minor=$2 minor=$start_minor max_checks=20
-    echo "Checking major version $major..."
-    while [ $((minor - start_minor)) -lt $max_checks ]; do
-        local redirect=$(get_redirect "$major.$minor")
-        [ -z "$redirect" ] && { echo "  $major.$minor -> (no response)"; break; }
-        
-        local ver=$(extract_version "$redirect")
-        echo "  $major.$minor -> $ver"
-        
-        local ver_num=$(version_to_number "$ver")
-        [ "$ver_num" -gt "$BEST_NUM" ] && { BEST_NUM=$ver_num; BEST_REDIRECT=$redirect; }
-        
-        # Fallback detection: returned major.minor < checked major.minor means stop
-        local ret_mm=$(echo "$ver" | cut -d'.' -f1-2)
-        [ "$(version_to_number "$ret_mm.0")" -lt "$(version_to_number "$major.$minor.0")" ] && { echo "  (fallback detected, stopping)"; break; }
-        
-        minor=$((minor + 1))
-    done
-}
-
-# Find the latest version by checking current and next major
-BEST_REDIRECT=""
-BEST_NUM=0
-check_major_series "$MAJOR" "$MINOR"
-check_major_series "$((MAJOR + 1))" 0
-
-if [ -z "$BEST_REDIRECT" ]; then
-    echo "❌ ERROR: Failed to get version from any endpoint"
-    exit 1
+api_response=$(curl -sf "https://api2.cursor.sh/updates/api/update/linux-x64/cursor/0.0.0/deadbeef/stable")
+if [ -z "$api_response" ]; then
+  echo "❌ ERROR: Failed to get response from update API"
+  exit 1
 fi
 
-# Extract version and commit from the best redirect (no re-check needed)
-NEW_PKGVER=$(extract_version "$BEST_REDIRECT")
-NEW_COMMIT=$(extract_commit "$BEST_REDIRECT")
-echo "Latest version found: $NEW_PKGVER"
+NEW_PKGVER=$(echo "$api_response" | jq -r '.version')
+api_url=$(echo "$api_response" | jq -r '.url')
+NEW_COMMIT=$(echo "$api_url" | sed -n 's|.*/production/\([^/]*\).*|\1|p')
 
 if [ -z "$NEW_PKGVER" ] || [ -z "$NEW_COMMIT" ]; then
-    echo "❌ ERROR: Failed to extract version or commit from redirect URL"
-    exit 1
+  echo "❌ ERROR: Failed to extract version or commit from API response"
+  exit 1
 fi
 
-echo "Current version: ${CURRENT_PKGVER:-none}"
-echo "Current commit: ${CURRENT_COMMIT:-none}"
-echo "New version: ${NEW_PKGVER}"
-echo "New commit: ${NEW_COMMIT}"
+echo "Latest: $NEW_PKGVER (commit: ${NEW_COMMIT:0:8})"
 echo ""
 
-# Check if update is needed
-if [ "$CURRENT_PKGVER" = "$NEW_PKGVER" ] && [ "$CURRENT_COMMIT" = "$NEW_COMMIT" ]; then
-    echo "ℹ️  No update needed. Current version matches latest."
-    echo ""
-    echo "💡 To force a test, you can temporarily modify PKGBUILD version"
-    exit 0
+NEEDS_DEB=false
+if [ "$CURRENT_PKGVER" != "$NEW_PKGVER" ] || [ "$CURRENT_COMMIT" != "$NEW_COMMIT" ]; then
+  NEEDS_DEB=true
+elif ! electron_is_specified "$CURRENT_ELECTRON"; then
+  NEEDS_DEB=true
+  echo "Electron dependency not specified in PKGBUILD; will download .deb to detect"
 fi
 
-echo "📥 Update needed! Generating PKGBUILD..."
+if [ "$NEEDS_DEB" = true ]; then
+  echo "⬇️  Downloading .deb file..."
+  curl -sf "https://downloads.cursor.com/production/${NEW_COMMIT}/linux/x64/deb/amd64/deb/cursor_${NEW_PKGVER}_amd64.deb" -o /tmp/cursor_test.deb
+
+  echo "🔐 Calculating SHA512 checksum..."
+  NEW_SHA=$(sha512sum /tmp/cursor_test.deb | cut -d ' ' -f 1)
+  echo "SHA512: ${NEW_SHA:0:20}..."
+
+  echo "⚡ Detecting Electron version from bundled binary..."
+  _ELECTRON=$(detect_electron_from_deb /tmp/cursor_test.deb)
+  echo "Detected Electron dependency: ${_ELECTRON}"
+else
+  echo "⏭️  Skipping .deb download (version unchanged, electron already specified: ${CURRENT_ELECTRON})"
+  _ELECTRON=$CURRENT_ELECTRON
+  NEW_SHA=$CURRENT_SHA
+fi
 echo ""
 
-# Download .deb file
-echo "⬇️  Downloading .deb file..."
-curl -s "https://downloads.cursor.com/production/${NEW_COMMIT}/linux/x64/deb/amd64/deb/cursor_${NEW_PKGVER}_amd64.deb" -o /tmp/cursor_test.deb
+if [ "$CURRENT_PKGVER" != "$NEW_PKGVER" ] || [ "$CURRENT_COMMIT" != "$NEW_COMMIT" ]; then
+  NEW_PKGREL=1
+elif [ "$CURRENT_ELECTRON" != "$_ELECTRON" ]; then
+  NEW_PKGREL=$((CURRENT_PKGREL + 1))
+else
+  NEW_PKGREL=$CURRENT_PKGREL
+fi
 
-# Calculate SHA512
-echo "🔐 Calculating SHA512 checksum..."
-NEW_SHA=$(sha512sum /tmp/cursor_test.deb | cut -d ' ' -f 1)
-echo "SHA512: ${NEW_SHA:0:20}..."
+LOCAL_NEEDS_UPDATE=false
+[ "$CURRENT_PKGVER" != "$NEW_PKGVER" ] && LOCAL_NEEDS_UPDATE=true
+[ "$CURRENT_COMMIT" != "$NEW_COMMIT" ] && LOCAL_NEEDS_UPDATE=true
+[ "$CURRENT_ELECTRON" != "$_ELECTRON" ] && LOCAL_NEEDS_UPDATE=true
+[ "$CURRENT_PKGREL" != "$NEW_PKGREL" ] && LOCAL_NEEDS_UPDATE=true
+[ "$CURRENT_SHA" != "$NEW_SHA" ] && LOCAL_NEEDS_UPDATE=true
 
-# Extract VSCode version from product.json
-echo "📦 Extracting VSCode version..."
-CODE_VERSION=$(bsdtar xOf /tmp/cursor_test.deb data.tar.xz 2>/dev/null | bsdtar xOf - ./usr/share/cursor/resources/app/product.json 2>/dev/null | jq -r .vscodeVersion)
-echo "VSCode version: ${CODE_VERSION}"
+AUR_NEEDS_UPDATE=false
+[ "${AUR_PKGVER:-}" != "$NEW_PKGVER" ] && AUR_NEEDS_UPDATE=true
+[ "${AUR_PKGREL:-}" != "$NEW_PKGREL" ] && AUR_NEEDS_UPDATE=true
+[ "${AUR_ELECTRON:-}" != "$_ELECTRON" ] && AUR_NEEDS_UPDATE=true
 
-# Get Electron version from VSCode's package-lock.json
-echo "⚡ Determining Electron version..."
-_ELECTRON=electron$(curl -sL "https://github.com/microsoft/vscode/raw/refs/tags/${CODE_VERSION}/package-lock.json" | jq -r '.packages."".devDependencies.electron |split(".")|.[0]')
-echo "Electron: ${_ELECTRON}"
+if [ "$LOCAL_NEEDS_UPDATE" = false ] && [ "$AUR_NEEDS_UPDATE" = false ]; then
+  echo "ℹ️  No update needed. Local and AUR match latest upstream."
+  exit 0
+fi
+
+if [ "$CURRENT_ELECTRON" != "$_ELECTRON" ]; then
+  echo "📥 Update needed: electron dependency fix (${CURRENT_ELECTRON:-none} -> ${_ELECTRON}, pkgrel ${NEW_PKGREL})"
+else
+  echo "📥 Update needed!"
+fi
 echo ""
 
-# Generate PKGBUILD from template
 echo "📝 Generating PKGBUILD from template..."
-# Use awk for sha512sum replacement as sed has issues with brackets
 awk -v pkgver="$NEW_PKGVER" \
+    -v pkgrel="$NEW_PKGREL" \
     -v commit="$NEW_COMMIT" \
     -v sha="$NEW_SHA" \
     -v electron="$_ELECTRON" \
     'BEGIN {OFS=""} 
      /^pkgver=/ {print "pkgver=" pkgver; next}
-     /^_commit=/ {print "_commit=" commit " # sed'\''ded at GitHub WF"; next}
+     /^pkgrel=/ {print "pkgrel=" pkgrel; next}
+     /^_commit=/ {print "_commit=" commit; next}
      /^sha512sums\[0\]=/ {print "sha512sums[0]=" sha; next}
      /^_electron=/ {print "_electron=" electron; next}
      {print}' PKGBUILD.sed > PKGBUILD.test || {
-    echo "❌ ERROR: Failed to generate PKGBUILD"
-    exit 1
+  echo "❌ ERROR: Failed to generate PKGBUILD"
+  exit 1
 }
 
 echo ""
 echo "✅ Validation checks..."
-# Temporarily disable exit on error for validation
 set +e
 VALIDATION_FAILED=0
 
-# Basic validation
 if ! grep -q "^pkgver=${NEW_PKGVER}$" PKGBUILD.test; then
-    echo "❌ ERROR: pkgver not set correctly"
-    VALIDATION_FAILED=1
+  echo "❌ ERROR: pkgver not set correctly"
+  VALIDATION_FAILED=1
 else
-    echo "✓ pkgver is correct"
+  echo "✓ pkgver is correct"
+fi
+
+if ! grep -q "^pkgrel=${NEW_PKGREL}$" PKGBUILD.test; then
+  echo "❌ ERROR: pkgrel not set correctly"
+  VALIDATION_FAILED=1
+else
+  echo "✓ pkgrel is correct"
 fi
 
 if ! grep -q "^_commit=${NEW_COMMIT}" PKGBUILD.test; then
-    echo "❌ ERROR: _commit not set correctly"
-    VALIDATION_FAILED=1
+  echo "❌ ERROR: _commit not set correctly"
+  VALIDATION_FAILED=1
 else
-    echo "✓ _commit is correct"
+  echo "✓ _commit is correct"
 fi
 
 if ! grep -q "^_electron=${_ELECTRON}$" PKGBUILD.test; then
-    echo "❌ ERROR: _electron not set correctly"
-    VALIDATION_FAILED=1
+  echo "❌ ERROR: _electron not set correctly"
+  VALIDATION_FAILED=1
 else
-    echo "✓ _electron is correct"
+  echo "✓ _electron is correct"
 fi
 
 if ! grep -q "^sha512sums\[0\]=${NEW_SHA}" PKGBUILD.test; then
-    echo "❌ ERROR: sha512sum not set correctly"
-    echo "   Expected: sha512sum[0]=${NEW_SHA:0:20}..."
-    echo "   Got: $(grep '^sha512sums\[0\]=' PKGBUILD.test || echo 'not found')"
-    VALIDATION_FAILED=1
+  echo "❌ ERROR: sha512sum not set correctly"
+  echo "   Expected: sha512sums[0]=${NEW_SHA:0:20}..."
+  echo "   Got: $(grep '^sha512sums\[0\]=' PKGBUILD.test || echo 'not found')"
+  VALIDATION_FAILED=1
 else
-    echo "✓ sha512sum is correct"
+  echo "✓ sha512sum is correct"
 fi
 
-# Check for ripgrep dependency
 if ! grep -q "ripgrep" PKGBUILD.test; then
-    echo "❌ ERROR: ripgrep dependency missing!"
-    VALIDATION_FAILED=1
+  echo "❌ ERROR: ripgrep dependency missing!"
+  VALIDATION_FAILED=1
 else
-    echo "✓ ripgrep dependency present"
+  echo "✓ ripgrep dependency present"
 fi
 
 echo ""
 
 set -e
 if [ $VALIDATION_FAILED -eq 1 ]; then
-    echo "❌ Validation failed!"
-    echo ""
-    echo "Generated PKGBUILD content (for debugging):"
-    echo "============================================"
-    if [ -f PKGBUILD.test ]; then
-        cat PKGBUILD.test
-    else
-        echo "PKGBUILD.test was not created!"
-    fi
-    exit 1
+  echo "❌ Validation failed!"
+  echo ""
+  echo "Generated PKGBUILD content (for debugging):"
+  echo "============================================"
+  cat PKGBUILD.test
+  exit 1
 fi
 
 echo "✅ All validations passed!"
@@ -215,34 +233,30 @@ echo "========================"
 cat PKGBUILD.test
 echo ""
 
-# Optionally test with makepkg (if on Arch Linux)
 if command -v makepkg &> /dev/null; then
-    read -p "🧪 Test with makepkg? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo ""
-        echo "🧪 Testing PKGBUILD with makepkg (dry run)..."
-        # Backup original PKGBUILD only when needed for makepkg test
-        if [ -f PKGBUILD ]; then
-            cp PKGBUILD PKGBUILD.backup
-        fi
-        cp PKGBUILD.test PKGBUILD
-        makepkg --verifysource --noconfirm || echo "⚠️  makepkg test had issues (this is expected if source files aren't available)"
-        # Restore original PKGBUILD
-        if [ -f PKGBUILD.backup ]; then
-            mv PKGBUILD.backup PKGBUILD
-            echo "✓ Restored original PKGBUILD"
-        fi
+  read -p "🧪 Test with makepkg? (y/N) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "🧪 Testing PKGBUILD with makepkg (dry run)..."
+    if [ -f PKGBUILD ]; then
+      cp PKGBUILD PKGBUILD.backup
     fi
+    cp PKGBUILD.test PKGBUILD
+    makepkg --verifysource --noconfirm || echo "⚠️  makepkg test had issues (this is expected if source files aren't available)"
+    if [ -f PKGBUILD.backup ]; then
+      mv PKGBUILD.backup PKGBUILD
+      echo "✓ Restored original PKGBUILD"
+    fi
+  fi
 fi
 
 echo ""
 echo "📋 Summary:"
 echo "==========="
 echo "Generated PKGBUILD saved as: PKGBUILD.test"
-if [ -f PKGBUILD.backup ]; then
-    echo "Original PKGBUILD preserved as: PKGBUILD.backup (from makepkg test)"
-fi
+echo "Target version: ${NEW_PKGVER}-${NEW_PKGREL}"
+echo "Electron dependency: ${_ELECTRON}"
 echo ""
 echo "To review the generated PKGBUILD:"
 echo "  cat PKGBUILD.test"
@@ -253,4 +267,3 @@ echo ""
 echo "To use the generated PKGBUILD:"
 echo "  mv PKGBUILD.test PKGBUILD"
 echo ""
-

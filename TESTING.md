@@ -116,7 +116,8 @@ git checkout PKGBUILD
 ### 2. PKGBUILD Generation
 - ✅ `pkgver` is set correctly
 - ✅ `_commit` is set correctly
-- ✅ `_electron` is determined correctly
+- ✅ `pkgrel` is set correctly (reset on version bump, incremented on electron-only fix)
+- ✅ `_electron` is detected from the bundled Cursor binary
 - ✅ `sha512sum[0]` is calculated correctly
 - ✅ `ripgrep` dependency is present
 - ✅ All other dependencies are preserved
@@ -169,9 +170,9 @@ Before merging to `main`:
 - Check for special characters in values
 
 ### Electron version detection fails
-- Check VSCode version extraction
-- Verify GitHub API access
-- Check jq parsing of package-lock.json
+- Check that `ar` and `tar` can extract `./usr/share/cursor/cursor` from the downloaded `.deb`
+- Verify `strings` finds `Electron/NN` in the bundled binary
+- Confirm the detected major version matches an `electronNN` package in Arch repos
 
 ### Local test script fails
 - Install missing dependencies: `sudo pacman -S base-devel jq`
